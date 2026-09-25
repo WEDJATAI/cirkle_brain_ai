@@ -1,0 +1,438 @@
+     1→# WEDJAT BRAIN V2 — Widget Implementation Worklog
+     2→
+     3→This file is the shared worklog for all agents implementing the WEDJAT AI Brain widget.
+     4→Each agent MUST read this file before starting and append a new section (starting with `---`) after finishing.
+     5→
+     6→---
+     7→Task ID: 0
+     8→Agent: orchestrator (main)
+     9→Task: Audit current project + design Brain MVP architecture
+    10→
+    11→Work Log:
+    12→- Read uploaded spec `/home/z/my-project/upload/Pasted Content_1790067982409.txt` (5868 lines, WEDJAT BRAIN V2 master spec)
+    13→- Audited existing project: Next.js 16 + Turbopack, Prisma SQLite, shadcn/ui (New York), z-ai-web-dev-sdk installed, single `/` route, dev server on port 3000
+    14→- Loaded LLM skill — z-ai-web-dev-sdk provides `chat.completions.create` (backend only). Use `thinking: { type: 'disabled' }` for standard completions.
+    15→- Designed MVP scope based on spec section #178 "Minimum Viable Brain":
+    16→  - Brain API (consolidated interface, §13)
+    17→  - Identity + tenant context (§16, §62)
+    18→  - Policy layer (§100, §101)
+    19→  - Model abstraction + router + fallback (§45-48)
+    20→  - Episodic + semantic + procedural memory with lifecycle (§20-25)
+    21→  - Knowledge: sources, claims, evidence, provenance, versions, conflicts (§26-33)
+    22→  - Hybrid retrieval: semantic + keyword + structured + reranking (§34-40)
+    23→  - Context engine with budgeting (§41-43)
+    24→  - Tool registry + governed execution + action state machine (§51-57)
+    25→  - Verification engine + evidence status (§83-85)
+    26→  - Learning candidate pipeline (§94, §192)
+    27→  - Observability: brain_runs/steps/events + audit + cost (§73, §127-130, §75)
+    28→  - Evaluation baseline (§86-92)
+    29→
+    30→Stage Summary:
+    31→- Tech stack confirmed: Next.js 16 App Router, TypeScript, Prisma SQLite, shadcn/ui, z-ai-web-dev-sdk (LLM provider abstraction)
+    32→- SQLite has no pgvector → implement semantic retrieval via in-memory TF-cosine similarity on stored memory/knowledge (pragmatic, avoids over-engineering per §179)
+    33→- Single `/` route hosts the Brain widget; all intelligence exposed via `/api/brain/*`
+    34→- Architecture follows spec §9 high-level diagram + §11 real-time path
+    35→- Ready to implement Prisma schema → brain library → API → UI
+    36→
+    37→---
+    38→Task ID: 1-7
+    39→Agent: orchestrator (main)
+    40→Task: Full implementation of WEDJAT BRAIN V2 widget (Prisma schema → brain library → API → UI → verification)
+    41→
+    42→Work Log:
+    43→- Wrote Prisma schema covering 24 models across all Brain domains (identity, conversations, memory, knowledge, documents, models/routes/usage, tools/executions, brain_runs/steps/events, audit, policies, learning_candidates, feedback, evaluation). Fixed relation back-references and pushed to SQLite.
+    44→- Built Brain core library in `src/lib/brain/`:
+    45→  - `types.ts` — BrainRequest/BrainResponse/BrainEvent/BrainStreamEvent + all enums (mode, status, risk, evidence, action states)
+    46→  - `vectors.ts` — pragmatic TF cosine similarity + Jaccard (SQLite has no pgvector; avoids over-engineering per §179)
+    47→  - `identity.ts` — tenant isolation enforcement (§62, §63), cross-tenant attack fails safely
+    48→  - `policy.ts` — executable policy engine (§100), global→tenant→application inheritance (§102), data-class ceiling (§60)
+    49→  - `memory.ts` — episodic/semantic/procedural (§20), lifecycle RAW→...→DELETED (§21), candidate pipeline (§22), supersession (§30, §188)
+    50→  - `knowledge.ts` — sources/claims/evidence/provenance/versions/conflicts (§26-33), candidate→active promotion (§32)
+    51→  - `retrieval.ts` — hybrid semantic+keyword+structured (§34), reranking (§39), deterministic structured lookup (§37, §191)
+    52→  - `models.ts` — model abstraction over z-ai-web-dev-sdk (§45), tier-based router (§47), explicit fallback (§48), cost tracking (§50, §75)
+    53→  - `tools.ts` — governed execution pipeline (§52), action state machine PROPOSED→...→VERIFIED (§55), idempotency (§54), risk gating + human approval (§56)
+    54→  - `verification.ts` — evidence status labels (§84), UNKNOWN/INSUFFICIENT EVIDENCE (§163), no fake confidence (§165)
+    55→  - `learning.ts` — candidate pipeline (§94), novelty/conflict detection, never auto-promotes (Rule 9, §97)
+    56→  - `prompts.ts` — modular prompts (§99), never encodes critical rules only in prompts (§100)
+    57→  - `runtime.ts` — BrainRuntime orchestrator implementing §11 real-time path with full trace emission
+    58→  - `seed.ts` — Phase 0 baseline: tenants, applications, models, tools, policies, knowledge sources/items/evidence, memory, golden dataset (§86)
+    59→- Implemented 14 Brain API routes under `/api/brain/*`:
+    60→  - `respond` (streaming NDJSON), `retrieve`, `memory`, `knowledge`, `tools/execute`, `tools/approve`, `evaluate`, `capabilities`, `health`, `trace`, `audit`, `metrics`, `seed`, `candidates`
+    61→- Built Brain widget UI on `/`:
+    62→  - Chat panel with streaming tokens, mode selector (auto/fast/balanced/deep), sample prompts
+    63→  - Cognitive Trace panel (middle) with 4 tabs: Trace (real-time steps with durations + reason codes), Evidence (provenance + validity windows), Tools (action state machine + Approve button for HIGH risk), Memory (recalled memories)
+    64→  - Admin Console (right) with 3 tabs: Health (self-diagnostics §110), Metrics (observability §127 with by-model/by-tool breakdown + golden eval runner), Audit (full audit log §129), plus Knowledge/Memory/Candidates management panels
+    65→  - Response chips show model used, verification status, tool count, evidence count, cost, latency
+    66→  - Sticky footer + header, dark mode (next-themes), responsive (3-col desktop / 2-col laptop / 1-col mobile)
+    67→- Seeded database: 2 tenants, 3 applications, 3 models, 6 tools, 7 knowledge items, 2 memories, 1 policy, 6 golden eval cases
+    68→- Self-verified with Agent Browser:
+    69→  - Page renders cleanly (no hydration errors, no console errors)
+    70→  - Invoice 1827 query → deterministic structured path, no LLM, VERIFIED evidence
+    71→  - Calc query (23+19) → calc.add tool VERIFIED, GLM Flash model, honest UNKNOWN verification (§163)
+    72→  - Email query → email.send tool AUTHORIZED state, Approve button → click → VERIFIED with idempotency key (§54)
+    73→  - Cognitive trace shows all steps with durations and reason codes
+    74→  - Evidence tab shows provenance (source title, validity window, evidence status)
+    75→  - Tools tab shows action state machine transitions
+    76→  - Audit panel shows tool.approval.required / tool.approved / tool.executed / brain.responded events
+    77→  - Metrics panel shows real observability data (16 runs, 11 model calls, p50/p95 latency)
+    78→  - Sticky footer at viewport bottom, responsive at mobile (390x844) and desktop (1280x800)
+    79→  - Lint clean, no dev server errors
+    80→
+    81→Stage Summary:
+    82→- WEDJAT BRAIN V2 widget is fully functional end-to-end
+    83→- Demonstrates the spec's core architectural concepts: identity/tenant isolation, policy, memory (3 domains + lifecycle), knowledge (sources/claims/evidence/provenance/versions/conflicts), hybrid retrieval, context engine, model router with fallback, governed tools with action state machine + human approval, verification with honest evidence labels, learning candidates (never auto-promote), observability (brain runs/steps/events/audit), cost tracking
+    84→- The LLM (z-ai-web-dev-sdk) is one replaceable component; the Brain owns all cognition
+    85→- Per spec §218: "WEDJAT HAS BUILT THE COGNITIVE SYSTEM. The LLM is only one component inside it."
+    86→
+    87→---
+    88→Task ID: 8
+    89→Agent: orchestrator (main)
+    90→Task: Import WEDJAT logo design from uploaded emsss.jpg, remove background, merge with UI theme colors
+    91→
+    92→Work Log:
+    93→- Loaded VLM skill + image-edit skill
+    94→- Analyzed uploaded logo `/home/z/my-project/upload/emsss.jpg` with z-ai vision: confirmed it's the Eye of Horus (Wedjat) symbol with glowing neon cyan (#00D9FF) circuit-board lines, hexagonal iris, hanging data nodes, "WEDJAT AI / DIGITAL IDENTITY SOLUTIONS" text, dark charcoal background, sci-fi/cyberpunk aesthetic
+    95→- Wrote `/home/z/my-project/scripts/gen-logo.ts`:
+    96→  - Reads uploaded JPG, base64-encodes it
+    97→  - Calls `zai.images.generations.edit` with prompt to isolate ONLY the Eye of Horus symbol, remove all text, make background pure transparent, keep the cyan glow
+    98→  - Uses Sharp to chroma-key residual dark pixels to true alpha=0 (luminance<70 + saturation<0.45 → transparent; cyan pixels b>90, b-r>30 kept opaque + saturation-boosted)
+    99→  - Trims to content bbox, generates favicon (256×256 padded), generates alpha-mask variant
+   100→- Ran the script: produced `/home/z/my-project/public/wedjat-logo.png` (595×477, 203 KB, hasAlpha=true, 82.1% pixels transparent) + `/home/z/my-project/public/wedjat-favicon.png` + `/home/z/my-project/public/wedjat-logo-mask.png`
+   101→- Verified transparency with VLM: confirmed background is transparent, Eye of Horus with glowing cyan circuit-board lines preserved
+   102→- Updated `src/app/globals.css`:
+   103→  - Added WEDJAT brand tokens: `--color-wedjat-cyan` (#00d9ff), `--color-wedjat-cyan-soft`, `--color-wedjat-cyan-deep` (#00a8cc), `--color-wedjat-electric` (#1ab8e6), `--color-wedjat-glow` (#66e8ff), `--color-wedjat-ink/surface/edge`
+   104→  - Replaced primary palette in `:root` and `.dark` with cyan-based oklch values (primary = oklch(0.78 0.16 220) light, oklch(0.82 0.16 220) dark)
+   105→  - Replaced chart-1..5 with cyan/teal/electric-blue/aqua/deep-blue
+   106→  - Added brand utilities: `wedjat-gradient`, `wedjat-gradient-soft`, `wedjat-text-glow`, `wedjat-glow`, `wedjat-ring`, `wedjat-grid-bg`, `wedjat-pulse` keyframe
+   107→  - Custom scrollbar styled with cyan tint
+   108→- Updated `src/app/layout.tsx`: favicon → `/wedjat-favicon.png`, themeColor → `#00D9FF`, OpenGraph image → `/wedjat-logo.png`
+   109→- Updated `src/app/page.tsx`:
+   110→  - Header now uses `next/image` with `/wedjat-logo.png` (transparent, drop-shadow cyan glow)
+   111→  - "WEDJAT" text gets `wedjat-text-glow`, "BRAIN" muted
+   112→  - V2 badge in cyan, status dot cyan with `wedjat-pulse`
+   113→  - Added theme toggle (Sun/Moon) using next-themes
+   114→  - Added subtle `wedjat-grid-bg` circuit-grid backdrop
+   115→  - Footer uses cyan accents
+   116→- Updated `src/components/brain/brain-widget.tsx`:
+   117→  - Replaced all `from-emerald-500 to-teal-600` gradients with `wedjat-gradient` / `wedjat-gradient-soft`
+   118→  - Replaced `text-emerald-600` / `text-emerald-500` with `text-[color:var(--color-wedjat-cyan)]`
+   119→  - Replaced `border-emerald-*` / `bg-emerald-*` with `border-[color:var(--color-wedjat-cyan)]/*` / `bg-[color:var(--color-wedjat-cyan)]/*`
+   120→  - Brain icon in widget header → `next/image` of `/wedjat-logo.png` on cyan gradient with `wedjat-glow` box-shadow
+   121→  - Empty state hero → large logo on `wedjat-gradient-soft` with cyan drop-shadow
+   122→  - User chat bubble → cyan gradient
+   123→  - Assistant chat bubble avatar → small logo on cyan gradient-soft
+   124→  - Send button → cyan gradient with glow
+   125→  - Streaming cursor → cyan `wedjat-pulse`
+   126→  - Trace completed-step dots → cyan
+   127→  - Tool wrench icon → cyan
+   128→  - Evidence/verification badges → cyan tones
+   129→- Updated `src/components/brain/admin-console.tsx`: sed-replaced all `emerald-*` and `teal-*` references with `wedjat-cyan` equivalents
+   130→- Removed unused imports (Brain icon, Sparkles, Separator, Scale, Eye from brain-widget)
+   131→- Lint clean (0 errors, 0 warnings)
+   132→- Self-verified with Agent Browser:
+   133→  - Page renders cleanly, no console errors
+   134→  - VLM confirms: logo visible (top-left + panel), transparent background (dark UI shows through, no black rectangle), dominant accent is cyan/electric-blue, aesthetic is cyber-tech/sci-fi
+   135→  - Invoice query → VERIFIED, evidence + trace flow intact
+   136→  - Email send → AUTHORIZED → click Approve → VERIFIED (action state machine intact)
+   137→  - Light theme toggle: logo merges cleanly with white background, cyan accents consistent
+   138→  - Favicon + OpenGraph image set to new logo
+   139→
+   140→Stage Summary:
+   141→- WEDJAT logo successfully imported from `emsss.jpg`, background removed (chroma-keyed to true transparency), saved as `public/wedjat-logo.png` (595×477) + `wedjat-favicon.png` (256×256)
+   142→- UI theme fully rebranded from emerald/teal to cyan/electric-blue cyber-tech palette matching the logo's #00D9FF neon glow
+   143→- Logo appears in: page header, widget header, empty-state hero, assistant chat bubble avatar
+   144→- Both light and dark themes verified — logo transparently merges with both backgrounds
+   145→- All existing functionality (chat, trace, evidence, tools, approval, audit, metrics, candidates, knowledge, memory) preserved
+   146→
+   147→---
+   148→Task ID: 1
+   149→Agent: phase0-audit
+   150→Task: Audit all 14 platform GitHub repositories per WEDJAT BRAIN cross-platform spec §137
+   151→
+   152→Work Log:
+   153→- Read worklog.md (Tasks 0–8): confirmed WEDJAT BRAIN V2 widget already functional in /home/z/my-project (Next.js 16 + Prisma SQLite + shadcn + z-ai-web-dev-sdk); logo imported; cyan/electric-blue brand applied; 14 /api/brain/* routes; cognitive trace / evidence / tools / memory / audit / metrics UI panels live.
+   154→- Created /home/z/my-project/docs/ for audit output. Pulled public metadata for all 15 repos via unauthenticated GitHub REST API (curl, Accept: application/vnd.github+json).
+   155→- Initial pass: 4 repos returned HTTP 403 (rate-limit burst); retried with 5s spacing — all 4 succeeded (HTTP 200). EGYCOURT (egycourt/egycourt) returned HTTP 404 confirmed (also via web fetch github.com/egycourt/egycourt → 404; org exists with public_repos: 0).
+   156→- Fetched README.md via raw.githubusercontent.com (does NOT count against API rate limit) for 10 of 14 non-404 repos; 4 repos have NO README.md at root (CIRKLE, mashahd, Aurienta, Wedjat_BrainAI).
+   157→- For the 4 README-less repos, used GitHub contents API to list root directory: discovered mashahd and Aurienta share IDENTICAL file sizes for every top-level file (bun.lock 377686 B, worklog.md 1724116 B, PRODUCTION_READINESS_AUDIT.md 23199 B, REPOSITORY_INTEGRITY.md 8441 B, UI_AUDIT.md 6881 B) — strong fork/template-snapshot evidence. CIRKLE root has MASTER_BLUEPRINT.md (74 KB), FINAL_REPORT.md, INTEGRATION.md, PHASE0_INSPECTION_REPORT.md (32 KB), worklog.md (645 KB). Wedjat_BrainAI root contains ONLY a LICENSE file (11357 B) — repo is a placeholder, actual Brain V2 code is the local workspace. MTQ root has LICENSE + 183-byte README only — also a stub.
+   158→- Fetched package.json for all 14 non-404 repos via raw.githubusercontent.com; parsed dependencies and scripts. Detected AI providers, DBs, frameworks.
+   159→- Wrote full audit to /home/z/my-project/docs/phase0-audit.md: 1 summary table (15 rows × 10 cols), 15 per-platform detail sections, cross-platform findings (counts, shared scaffold, AI convergence, DB convergence, realtime/Web3, notable patterns, recommended adapter priority), and 10 honest limitations per spec §186.
+   160→
+   161→Stage Summary:
+   162→- Audited 15 repos: 12 public & inspectable, 2 public-but-stub (MTQ #9, Wedjat_BrainAI #15), 1 not-found (EGYCOURT #11 — org exists, 0 public repos).
+   163→- Shared scaffold confirmed across 11/12 substantive repos: Next.js 16 + Prisma + shadcn/ui (New York) + Tailwind 4 + Bun + Vercel + multi-agent worklog.md protocol (the same protocol the WEDJAT workspace itself uses).
+   164→- AI provider convergence: z-ai-web-dev-sdk is the de-facto standard in 8/12 substantive repos (MAIL, verify, SGTX, judge_synapse, PPE, olympex, MTQ_SIGMA, + the Wedjat workspace itself). AURIENTA is the sole outlier with 4 parallel SDKs (@google/generative-ai, @huggingface/inference, groq-sdk, openai) — flag for Phase 1 reconciliation.
+   165→- Brain-alignment ranking: VERIFY (P1, maps to §62 tenant identity + §83-85 evidence) and JUDGE-SMART (P1, maps to §26-33 knowledge/provenance/versions + §165 honest evidence + §100 system-vs-binding decision separation) are the two most Brain-aligned platforms. PPE (P2) demonstrates the §86-92 golden-eval pattern in production.
+   166→- Blockers identified: EGYCOURT 404 (cannot inspect per §186); SGTX FABLE README↔package.json inconsistency (README claims Next.js v12 9-portal app, package.json is a 5-dep Hono stub); MTQ + Wedjat_BrainAI are stub repos.
+   167→- Honest limitations section lists 10 caveats including: no runtime inspection, 3 repos have no README, 2 are stubs, AI-SDK-in-package.json ≠ used-at-runtime, no deployed-site verification, identical-file-size mashahd↔Aurienta observation is inference not diff-confirmed.
+   168→- Audit doc path: /home/z/my-project/docs/phase0-audit.md
+   169→
+   170→---
+   171→Task ID: 7+6
+   172→Agent: brain-sdk-events
+   173→Task: Build Brain SDK (§28, §67) + cross-platform event ingestion API (§20, §68-70)
+   174→
+   175→Work Log:
+   176→- Read worklog.md (Tasks 0–8 + Task 1 phase0-audit). Confirmed WEDJAT BRAIN V2 widget already live in /home/z/my-project with 14 /api/brain/* routes, Neon Postgres DB, Platform registry + 14-platform catalog at src/lib/brain/platform-registry.ts, and Prisma models Platform / PlatformEvent / PlatformHealth / AdapterRegistration / PlatformEvaluationSet already pushed.
+   177→- Audited existing code paths needed by both pieces:
+   178→  - src/lib/brain/client.ts — exports BrainStreamState, initialStreamState, streamBrainResponse (NDJSON parser, hard-coded to same-origin /api/brain/respond + global fetch).
+   179→  - src/lib/brain/types.ts — BrainRequest, BrainResponse, BrainStreamEvent, EvidenceRef, TraceStep, ToolResult, EvidenceStatus, BrainEvent (§113-114). No BrainPlatformEvent yet.
+   180→  - src/lib/brain/platform-registry.ts — PLATFORM_CATALOG (14 platforms), getPlatformBySlug, listPlatforms. Catalog has slug/name/domain/dataClassCeiling/memoryScope/eventTypes etc.
+   181→  - src/lib/brain/vectors.ts — buildTermVector, serializeVector, cosineSimilarity, deserializeVector, jaccardSimilarity, estimateTokens.
+   182→  - src/lib/brain/learning.ts — createLearningCandidate(input) (Rule 9: never auto-promotes; PENDING decision), decideCandidate, listCandidates.
+   183→  - src/lib/brain/identity.ts — resolveIdentity(req) enforces tenant isolation (§62, §63).
+   184→  - src/lib/brain/policy.ts — resolvePolicy(identity), checkToolAllowed, checkDataClassAllowed (§24 ceiling).
+   185→  - prisma/schema.prisma — PlatformEvent (eventId unique, eventType, eventVersion, platformId, tenantId, applicationId?, userId?, requestId?, actorType?, actorId?, data JSON, provenance JSON?, classification, scope, pipelineState default RECEIVED, pipelineError?, processedAt?), Platform (slug unique, adapterStatus, dataClassCeiling, status), PlatformApplication (@@unique platformId+applicationId), BrainEvent (existing observability table, eventId unique).
+   186→- Piece 2 prerequisite — appended `BrainPlatformEvent` interface + `PlatformEventPipelineState` union to src/lib/brain/types.ts (per task spec, exact shape: eventId, eventType, eventVersion, timestamp, platformId?, platformSlug?, applicationId?, tenantId?, userId?, requestId?, actor?, data, provenance?, classification?, scope?).
+   187→- Piece 1 prerequisite — refactored `streamBrainResponse` in src/lib/brain/client.ts to accept an optional 4th argument `StreamOptions { url?, fetchImpl?, headers? }`. Backward-compatible: existing brain-widget.tsx call sites (`streamBrainResponse(body, onState, signal)`) continue to work unchanged (url defaults to "/api/brain/respond", fetchImpl defaults to global fetch). Exported `StreamOptions` interface alongside the existing exports.
+   188→- Piece 1 — created src/sdk/brain-sdk.ts (Brain SDK, spec §28, §67):
+   189→  - Exports `BRAIN_SDK_VERSION = "0.1.0"`.
+   190→  - Re-exports all type contracts from @/lib/brain/types (BrainRequest, BrainResponse, BrainStreamEvent, EvidenceRef, ToolResult, TraceStep, EvidenceStatus, BrainPlatformEvent, PlatformEventPipelineState, + everything else via `export *`). Also re-exports BrainStreamState, StreamOptions, initialStreamState, streamBrainResponse from @/lib/brain/client (no duplication — reused as instructed).
+   191→  - `BrainClient` class with constructor `{ baseUrl?, platformSlug?, applicationId?, tenantId?, fetch? }`. Trailing slash stripped from baseUrl. Falls back to globalThis.fetch (Node 18+ / browser native). Throws if no fetch available.
+   192→  - Auto-injects `X-Brain-SDK-Version` + `X-Brain-Platform` headers on every request (§67). Auto-injects `applicationId` + `tenantId` into every request body if not already present (§134).
+   193→  - Methods (all 12 from §28): `respond()` (POST /api/brain/respond, consumes NDJSON internally via streamBrainResponse), `stream()` (POST /api/brain/respond with onEvent callback), `retrieve()`, `remember()`, `evaluate()`, `publishEvent()` (single or batch overload), `executeTool()`, `capabilities()`, `health()`, `trace(requestId)`, `audit(limit)`, `metrics()`.
+   194→  - `publishEvent()` has TypeScript overload: `publishEvent(BrainPlatformEvent)` → single result; `publishEvent(BrainPlatformEvent[])` → array of results.
+   195→  - Factory `createBrainClient(opts)` returns a BrainClient. Default export `brain` (same-origin client) for in-app callers.
+   196→  - Isomorphic — never imports z-ai-web-dev-sdk (HTTP-only). Uses `import type` for all type-only imports.
+   197→- Piece 2 — created src/lib/brain/event-bus.ts (shared pipeline helpers):
+   198→  - `ensurePlatformRow(slug)` — auto-provisions a Platform DB row from PLATFORM_CATALOG (existing seed.ts doesn't seed Platform rows; this makes the events API work out-of-box).
+   199→  - `resolvePlatformForEvent(ev, headerSlug)` — resolves platform via platformId → platformSlug (payload or X-Brain-Platform header) → PlatformApplication(applicationId) → Application slug → catalog match. Returns null if unresolvable.
+   200→  - `isPlatformAcceptingEvents(status)` — accepts REGISTERED / AUTHENTICATED / ACTIVE / AUDITED / DEGRADED (§67, §166).
+   201→  - `resolveDefaultTenantId` / `resolveDefaultApplicationId` — acme tenant + mashahd app defaults (same as /respond route).
+   202→  - `validateEvent(ev)` — required fields eventId, eventType, eventVersion, timestamp, data; eventVersion must be positive int; eventType must be namespaced (contains "."); data must be object.
+   203→  - `contentHash(ev)` — deterministic SHA-256 of sorted-key JSON of {eventType, data, actorId} for duplicate detection (§21, §69).
+   204→  - `categoryForEventType(eventType)` — maps to LearningCategory per §95: brain.knowledge.* → "knowledge", brain.tool.* → "tool", brain.application.* → "routing", brain.memory.* → "memory", *evaluation_case* / *evaluation.* → "evaluation", *correction* → "procedural", default (learning.observation, learning.preference, learning.success, learning.failure, brain.user.feedback) → "memory".
+   205→  - `exceedsCeiling(eventClassification, platformCeiling)` — §24 rank comparison.
+   206→  - Constants: NOVELTY_THRESHOLD=0.3, DUPLICATE_SIMILARITY=0.95, RECENT_EVENT_WINDOW=100.
+   207→- Piece 2 — created src/app/api/brain/events/route.ts:
+   208→  - `POST /api/brain/events` — accepts a single BrainPlatformEvent or batch array. For each event: validate required fields (400 on failure) → resolve platform (403 if not registered/active, §67) → resolve tenantId + applicationId (defaults to acme + mashahd if not provided) → idempotency check by eventId (§69: returns 200 with existing record + `duplicate:true`, NO reprocessing) → persist PlatformEvent row with `pipelineState="RECEIVED"` → also create a BrainEvent row (existing §113-114 table) for unified trace visibility. Single-event response: `{ ok, eventId, pipelineState, duplicate?, platformId?, error? }`. Batch response: `{ ok, count, succeeded, failed, results[] }`.
+   209→  - `GET /api/brain/events?platformId=...&platformSlug=...&eventType=...&tenantId=...&limit=...` — lists recent events with full pipeline state + platform relation (slug, displayName, domain). Cap limit at 200.
+   210→- Piece 2 — created src/app/api/brain/events/process/route.ts:
+   211→  - `POST /api/brain/events/process?limit=...&platformId=...` — advances RECEIVED events through the §21 pipeline (driven by Inngest or cron). FIFO order (oldest first). For each RECEIVED event:
+   212→    1. CLASSIFIED — apply platform's data-class ceiling as default classification; scope defaults to platform.memoryScope.
+   213→    2. SECURITY_CHECKED — reject if event classification exceeds platform ceiling (§24, §60) → set pipelineState=REJECTED + audit WARN.
+   214→    3. PROVENANCE_ATTACHED — synthesize minimal provenance {sourceApp, retrievedAt, extractionMethod} if not present.
+   215→    4. DUPLICATE_CHECKED — content hash + cosine similarity (buildTermVector + cosineSimilarity from @/lib/brain/vectors) against last 100 same-type events. Hash-exact or cosine ≥ 0.95 = duplicate.
+   216→    5. NOVELTY_SCORED — novelty = 1 - maxSimilarity.
+   217→    6. PROMOTION_DECIDED — for novel events (novelty ≥ 0.3), create LearningCandidate via createLearningCandidate() with category from categoryForEventType(). Candidate decision=PENDING (Rule 9 §97 — never auto-promote). Audit INFO "learning.candidate.created" with explicit reason. Duplicate / low-novelty events skip candidate generation.
+   218→  - Uses Prisma.PlatformEventGetPayload<{include:{platform:true}}> for proper typing of the platform relation in advancePipeline().
+   219→- Verified Prisma client (`node_modules/.prisma/client/index.d.ts`) is regenerated with platformEvent + platformApplication + PlatformEventGetPayload — no schema regeneration needed.
+   220→- Ran `bun run lint` → exit 0, 0 errors 0 warnings. Ran `npx tsc --noEmit` → 0 errors in any file I created or modified (src/sdk/brain-sdk.ts, src/app/api/brain/events/route.ts, src/app/api/brain/events/process/route.ts, src/lib/brain/event-bus.ts, src/lib/brain/client.ts, src/lib/brain/types.ts). Pre-existing errors in unrelated files (examples/websocket, scripts/gen-logo, skills/*, src/lib/brain/platform-registry.ts "ORGANIZATION" not in KnowledgeScope, src/lib/brain/runtime.ts PolicyRules import) remain unchanged — out of scope per task (platform-registry + runtime were created by prior agents, Task IDs 1-7).
+   221→
+   222→Stage Summary:
+   223→- Files created:
+   224→  - src/sdk/brain-sdk.ts — Brain SDK (§28, §67). Typed isomorphic HTTP client. Exports BRAIN_SDK_VERSION="0.1.0", BrainClient class, createBrainClient() factory, default `brain` client, all type contracts from @/lib/brain/types re-exported, plus BrainStreamState / StreamOptions / initialStreamState / streamBrainResponse from @/lib/brain/client (reused, not duplicated).
+   225→  - src/lib/brain/event-bus.ts — shared helpers: ensurePlatformRow, resolvePlatformForEvent, isPlatformAcceptingEvents, resolveDefaultTenantId, resolveDefaultApplicationId, validateEvent, contentHash, categoryForEventType, exceedsCeiling, NOVELTY_THRESHOLD, DUPLICATE_SIMILARITY, RECENT_EVENT_WINDOW.
+   226→  - src/app/api/brain/events/route.ts — POST (ingest single/batch, idempotent by eventId §69, platform resolution §67, 403 if not registered/active) + GET (list recent events with pipeline state).
+   227→  - src/app/api/brain/events/process/route.ts — POST (advance RECEIVED → CLASSIFIED → SECURITY_CHECKED → PROVENANCE_ATTACHED → DUPLICATE_CHECKED → NOVELTY_SCORED → PROMOTION_DECIDED; creates PENDING LearningCandidate for novel events; never auto-promotes Rule 9 §97; emits audit events).
+   228→- Files modified:
+   229→  - src/lib/brain/types.ts — appended BrainPlatformEvent interface + PlatformEventPipelineState union (exact shape per task spec).
+   230→  - src/lib/brain/client.ts — extended streamBrainResponse with optional 4th StreamOptions arg { url?, fetchImpl?, headers? }. Backward-compatible (existing brain-widget.tsx callers unaffected).
+   231→- Endpoints exposed (SDK surface, §28):
+   232→  - POST /api/brain/respond — brain.respond() / brain.stream()
+   233→  - POST /api/brain/retrieve — brain.retrieve()
+   234→  - POST /api/brain/memory — brain.remember()
+   235→  - POST /api/brain/evaluate — brain.evaluate()
+   236→  - POST /api/brain/events — brain.publishEvent() (NEW, §20, §68-70)
+   237→  - POST /api/brain/events/process — pipeline advance (NEW, §21)
+   238→  - GET  /api/brain/events — list recent events (NEW)
+   239→  - POST /api/brain/tools/execute — brain.executeTool()
+   240→  - GET  /api/brain/capabilities — brain.capabilities()
+   241→  - GET  /api/brain/health — brain.health()
+   242→  - GET  /api/brain/trace?requestId= — brain.trace(requestId)
+   243→  - GET  /api/brain/audit — brain.audit(limit)
+   244→  - GET  /api/brain/metrics — brain.metrics()
+   245→- Contracts (spec alignment):
+   246→  - §20 — every application may publish approved Brain events (validated, platform-resolved, persisted to PlatformEvent).
+   247→  - §21 — pipeline RECEIVED → CLASSIFIED → SECURITY_CHECKED → PROVENANCE_ATTACHED → DUPLICATE_CHECKED → NOVELTY_SCORED → PROMOTION_DECIDED (full state machine in PlatformEventPipelineState).
+   248→  - §24 — data-class ceiling enforced: event classification > platform ceiling → REJECTED + audit WARN.
+   249→  - §28 — Brain SDK exposes the full typed Brain surface (12 methods).
+   250→  - §67 — adapter identity: X-Brain-Platform + X-Brain-SDK-Version headers on every SDK request; platform must be REGISTERED/AUTHENTICATED/ACTIVE/AUDITED/DEGRADED to publish.
+   251→  - §68 — events are versioned (eventVersion int, validated ≥ 1).
+   252→  - §69 — idempotent by eventId (upsert check before create; duplicates return 200 + duplicate:true, NO reprocessing).
+   253→  - §75 — NO automatic cross-platform memory leakage (events go to PlatformEvent + BrainEvent trace table only; no automatic writes to MemoryItem / KnowledgeItem).
+   254→  - §97 (Rule 9) — LearningCandidate created with decision=PENDING; never auto-promoted. Audit INFO emitted for every candidate creation.
+   255→  - §134 — every SDK request carries requestId / applicationId / sdkVersion (sdkVersion via X-Brain-SDK-Version header; applicationId/tenantId auto-injected into body).
+   256→- Lint clean (bun run lint → exit 0). No new TypeScript errors introduced in any file I created or modified.
+   257→
+   258→---
+   259→Task ID: 8+5
+   260→Agent: inngest-adapters
+   261→Task: Inngest background learning (§65) + 14 platform adapter stubs (§27)
+   262→
+   263→Work Log:
+   264→- Read worklog.md (Tasks 0–8 + Task 1 phase0-audit + Task 7+6 brain-sdk-events). Confirmed WEDJAT BRAIN V2 widget is live with 14 /api/brain/* routes, Neon Postgres DB, platform registry + 14-platform catalog, cross-platform event bus (events + events/process routes), BrainPlatformEvent + PlatformEventPipelineState types.
+   265→- Read docs/phase0-audit.md (full 312-line Phase 0 audit) for realistic per-platform adapter stub content: per-platform README highlights, frameworks, AI providers, DB runtimes, recommended adapter priority (P1 verify + judge_smart; P5 MTQ/EGYCOURT/SGTX FABLE blocked).
+   266→- Read src/lib/brain/platform-registry.ts — PLATFORM_CATALOG with 14 entries (slugs: cirkle, mail, olympex, mashahd, verify, wasl, aurienta, sgtx, mtq, judge_smart, egycourt, sgtx_fable, ppe, mtq_sigma). Each entry has capabilities, governanceBoundary, dataClassCeiling, riskCeiling, etc.
+   267→- Read src/lib/brain/types.ts — BrainPlatformEvent, BrainResponse, KnowledgeRecord, ModelDescriptor, MemoryStatus, KnowledgeStatus, ActionState, EvidenceStatus all defined.
+   268→- Read src/app/api/brain/events/process/route.ts (existing §21 pipeline) and src/lib/brain/event-bus.ts (shared helpers). Identified that the per-event advancePipeline logic could be shared with Inngest without an HTTP round-trip.
+   269→- Read src/lib/brain/learning.ts (createLearningCandidate — Rule 9 never auto-promote) and src/lib/brain/memory.ts (memory lifecycle RAW→CANDIDATE→...→ACTIVE→SUPERSEDED/REJECTED) for the memory consolidation job.
+   270→- Inspected prisma/schema.prisma — MemoryItem (status CANDIDATE/REJECTED/etc, contentVector JSON), KnowledgeItem (status ACTIVE/VALIDATING, refreshSchedule hourly/daily, lastRefreshedAt), ToolExecution (state PROPOSED/AUTHORIZED/TIMED_OUT), EvaluationSet/Case/Run models, AuditEvent (severity INFO/WARN).
+   271→- Inspected inngest@4.20.0 SDK (just installed via `bun add inngest`): `Inngest` class, `serve` from `inngest/next` (returns {GET,POST,PUT}), `createFunction` takes 2 args (options + handler) with `triggers` inside options, `NonRetriableError` class for permanent failures, `step.run/sendEvent/sleep/sleepUntil/waitForEvent` available. `serve({ streaming })` accepts `true | false` (NOT the "allow" string from the Python SDK — used `true` for type correctness, documented in a comment).
+   272→- Installed inngest@4.20.0 via `bun add inngest` — package added to package.json + lockfile.
+   273→
+   274→Piece 1 — Inngest integration (§65):
+   275→- Created src/lib/brain/event-pipeline.ts — extracted the §21 pipeline logic (processPendingEvents + advancePipeline) from /api/brain/events/process/route.ts so the Inngest brain-event-pipeline function can call it without an HTTP round-trip. Single source of truth for the pipeline.
+   276→- Refactored src/app/api/brain/events/process/route.ts to call processPendingEvents() — now 30 lines (was 333). API-identical behavior, just deduplicated.
+   277→- Created src/lib/brain/jobs.ts — shared business-logic functions for each Brain background job: runMemoryConsolidation, runEventPipeline, runKnowledgeRefresh, runEvaluationBatch. Lazy-imports the runtime (`runBrain`) only inside runEvaluationBatch so the static module graph stays free of z-ai-web-dev-sdk.
+   278→- Created src/lib/brain/inngest.ts — Inngest client (`new Inngest({ id: "wedjat-brain", eventKey: process.env.INNGEST_EVENT_KEY ?? "dev-key" })`) + 5 Brain functions:
+   279→  1. brain-memory-consolidation — cron "*/10 * * * *". Scans CANDIDATE memories older than 5 min, computes novelty vs. ACTIVE peers (deserializeVector + cosineSimilarity), low-novelty (≤0.3) → REJECTED + audit, high-novelty → leave CANDIDATE for human review (Rule 9 §97). Wraps shared runMemoryConsolidation() in step.run.
+   280→  2. brain-event-pipeline — triggered by brain/event.received event. Calls shared runEventPipeline() which calls processPendingEvents() (the §21 pipeline). Distinguishes permanent errors (NonRetriableError: "unknown field|invalid.*prisma|does not exist|validation") from transient (Prisma timeout/network — falls through to retries: 5 with exponential backoff).
+   281→  3. brain-knowledge-refresh — cron "0 3 * * *" (daily at 03:00). Finds ACTIVE KnowledgeItems with refreshSchedule ∈ {hourly, daily}; for hourly items older than 1h or daily older than 24h since lastRefreshedAt, marks VALIDATING + emits audit. STUB — actual external refresh is platform-adapter territory.
+   282→  4. brain-evaluation-batch — triggered by brain/evaluation.requested event. Calls shared runEvaluationBatch() which reuses runBrain() for each golden case, persists EvaluationRun. After completion, emits brain/evaluation.completed via step.sendEvent (durable — survives retries).
+   283→  5. brain-human-approval-wait — triggered by brain/approval.required event. Uses step.waitForEvent("await-approval", { event: "brain/approval.received", timeout: "24h", if: `event.data.executionId == "${trigger.executionId}"` }). On approval → marks ToolExecution AUTHORIZED + audit. On timeout → marks TIMED_OUT (§55 action state) + WARN audit. Idempotent — terminal-state executions are no-ops (§54).
+   284→  - All 5 functions: retries: 5 (BRAIN_RETRIES), each step.run body wrapped in try/catch, NonRetriableError for permanent failures.
+   285→  - Exported brainFunctions array (all 5 functions) for the serve handler.
+   286→- Created src/app/api/inngest/route.ts — `serve({ client: inngest, functions: brainFunctions, streaming: true })` from `inngest/next`. Exports `runtime = "nodejs"`, `dynamic = "force-dynamic"`, and `GET`/`POST`/`PUT` handlers. `streaming: true` (the JS SDK type is `true | false`; the "allow" string in the task description is Python SDK convention — documented in code comment).
+   287→- Created src/app/api/brain/jobs/route.ts — DEV-ONLY manual trigger. POST body `{ job: "memory-consolidation" | "event-pipeline" | "knowledge-refresh" | "evaluation-batch", ...opts }` calls the corresponding shared jobs.ts function directly (bypassing Inngest event dispatch). Also exports GET listing all 4 available jobs. brain-human-approval-wait intentionally NOT exposed (requires step.waitForEvent's durable 24h wait — no equivalent outside Inngest; approval flows tested via /api/brain/tools/approve). Documented that production runs via Inngest worker.
+   288→
+   289→Piece 2 — 14 Platform adapter stubs (§27):
+   290→- Created src/lib/brain/adapters/registry.ts — adapterRegistry Map<string, BrainPlatformAdapter>. Exports registerAdapter (idempotent — guards against double-registration), getAdapter(slug), listAdapters(), _clearAdaptersForTest() (test-only).
+   291→- Created src/lib/brain/adapters/index.ts — defines the BrainPlatformAdapter interface (§27: getCapabilities, publishEvents, retrieveAuthorizedData, receiveBrainResponses, receiveKnowledgeUpdates, receiveModelCapabilities). Imports BrainPlatformEvent, BrainResponse, KnowledgeRecord, ModelDescriptor from @/lib/brain/types. Re-exports registerAdapter/getAdapter/listAdapters from ./registry. At the bottom, imports all 14 adapter files so they self-register on first import.
+   292→- Created 14 adapter files (one per platform):
+   293→  - cirkle.ts (slug "cirkle") — governance: "Private user activity must NOT become global Brain knowledge (§4.1)." Phase 0 #1.
+   294→  - mail.ts (slug "mail") — governance: "Private email contents must NOT become global Brain knowledge (§5, §48, §75)." Phase 0 #2.
+   295→  - olympex.ts (slug "olympex") — governance: "Export/RFQ data is application-scoped (§6)." Phase 0 #3.
+   296→  - mashahd.ts (slug "mashahd") — governance: "User engagement signals must NOT auto-become global knowledge (§7)." Phase 0 #4.
+   297→  - verify.ts (slug "verify") — governance: "Brain may assist verification but must NOT fabricate verification (§8). Evidence-driven only." Phase 0 #5.
+   298→  - wasl.ts (slug "wasl") — governance: "Wasl's commitment/authorization semantics remain authoritative in Wasl (§9)." Phase 0 #6.
+   299→  - aurienta.ts (slug "aurienta") — governance: "Brain must not make consequential business decisions without application authorization (§10)." Phase 0 #7. Flagged 4 parallel AI SDKs (Google/HF/Groq/OpenAI — NOT z-ai).
+   300→  - sgtx.ts (slug "sgtx") — governance: "DO NOT bypass SGTX Governor / OPA / WasmEdge / Human Authorization / Crypto Signature / Loom / NATS (§11, §45). AI advice ≠ authorization; AI recommendation ≠ execution." Phase 0 #8.
+   301→  - mtq.ts (slug "mtq") — governance: "analysis ≠ authorization; recommendation ≠ transaction execution (§12, §47)." Phase 0 #9 — STUB repo, flagged §186.
+   302→  - judge-smart.ts (slug "judge_smart") — governance: "Brain must NOT autonomously make final legal judgments (§13, §46). AI assistance + evidence + human/legal authority required." Phase 0 #10. References EJB-CORPUS-2026.08-R1 signed snapshot.
+   303→  - egycourt.ts (slug "egycourt") — governance: "High-sensitivity court data — no unrestricted global Brain access (§14, §94)." Phase 0 #11 — 404 / not inspectable, flagged §186.
+   304→  - sgtx-fable.ts (slug "sgtx_fable") — governance: "FABLE data is application-scoped, NOT globally shareable (§15)." Phase 0 #12 — README ↔ package.json inconsistency flagged.
+   305→  - ppe.ts (slug "ppe") — governance: "PPE namespace + evaluation suite (§16)." Phase 0 #13. References 111-image dataset, 94.7% exact match, label_noise classification.
+   306→  - mtq-sigma.ts (slug "mtq_sigma") — governance: "Separate application_id, policy, scope from MTQ (§17). External financial actions require application authorization (§47)." Phase 0 #14. References 4 testnets, 10,300 Monte Carlo runs, 28 on-chain tests.
+   307→- Each adapter stub: imports its catalog entry via PLATFORM_CATALOG.find(p => p.slug === "..."), throws if missing. Implements BrainPlatformAdapter. getCapabilities() returns catalog.capabilities. publishEvents() logs count + returns { accepted: events.length, rejected: 0 }. retrieveAuthorizedData() logs + returns { items: [] } with a comment listing what real authorized data the platform would return (per Phase 0 audit). receiveBrainResponses/receiveKnowledgeUpdates/receiveModelCapabilities() — stubs that log. Each file ends with registerAdapter(adapter) + `export default adapter`.
+   308→- Governance boundary comment at the top of each adapter file (using the catalog's governanceBoundary text). SGTX adapter explicitly says "DO NOT bypass Governor/OPA/WasmEdge pipeline (§11, §45)".
+   309→- Double-registration guard: registerAdapter() is a no-op if the slug is already in the map. Importing an adapter module twice is safe.
+   310→
+   311→Smoke tests (passed):
+   312→- adapter-check.ts (deleted after run): imported @/lib/brain/adapters, listAdapters() returned 14 adapters with the correct slugs (cirkle, mail, olympex, mashahd, verify, wasl, aurienta, sgtx, mtq, judge_smart, egycourt, sgtx_fable, ppe, mtq_sigma).
+   313→- inngest-check.ts (deleted after run): imported @/lib/brain/inngest, brainFunctions.length === 5 with IDs brain-memory-consolidation, brain-event-pipeline, brain-knowledge-refresh, brain-evaluation-batch, brain-human-approval-wait. inngest.id === "wedjat-brain".
+   314→
+   315→Lint + tsc:
+   316→- `bun run lint` → exit 0, 0 errors 0 warnings.
+   317→- `npx tsc --noEmit` → 0 errors in any file I created or modified (src/lib/brain/inngest.ts, src/lib/brain/jobs.ts, src/lib/brain/event-pipeline.ts, src/lib/brain/adapters/*, src/app/api/inngest/route.ts, src/app/api/brain/jobs/route.ts, src/app/api/brain/events/process/route.ts). Pre-existing errors in unrelated files (examples/websocket, scripts/gen-logo, skills/*) remain unchanged — out of scope per task constraints.
+   318→
+   319→Stage Summary:
+   320→- Files created (15 new):
+   321→  - src/lib/brain/inngest.ts — Inngest client + 5 Brain functions (§65). Exports inngest, brainMemoryConsolidation, brainEventPipeline, brainKnowledgeRefresh, brainEvaluationBatch, brainHumanApprovalWait, brainFunctions[], NonRetriableError.
+   322→  - src/lib/brain/jobs.ts — shared business logic for the 4 runnable Brain jobs (runMemoryConsolidation, runEventPipeline, runKnowledgeRefresh, runEvaluationBatch). Lazy-imports runtime to keep static graph AI-SDK-free.
+   323→  - src/lib/brain/event-pipeline.ts — extracted §21 pipeline (processPendingEvents + advancePipeline + ProcessResult + ProcessPendingOpts types). Shared by the existing REST route and the Inngest function.
+   324→  - src/app/api/inngest/route.ts — Inngest serve handler (GET/POST/PUT). runtime=nodejs, dynamic=force-dynamic, streaming=true.
+   325→  - src/app/api/brain/jobs/route.ts — dev-only manual trigger. POST { job } runs the corresponding jobs.ts function directly. GET lists available jobs.
+   326→  - src/lib/brain/adapters/index.ts — BrainPlatformAdapter interface (§27) + 14 self-registration imports.
+   327→  - src/lib/brain/adapters/registry.ts — adapterRegistry Map + registerAdapter (idempotent), getAdapter, listAdapters.
+   328→  - src/lib/brain/adapters/{cirkle,mail,olympex,mashahd,verify,wasl,aurienta,sgtx,mtq,judge-smart,egycourt,sgtx-fable,ppe,mtq-sigma}.ts — 14 adapter stubs (filenames use hyphen; slugs use underscore where applicable: judge_smart, sgtx_fable, mtq_sigma).
+   329→- Files modified (1):
+   330→  - src/app/api/brain/events/process/route.ts — refactored to call processPendingEvents() from event-pipeline.ts (was inline; now 30 lines vs 333, behavior identical).
+   331→- Endpoints exposed:
+   332→  - POST /api/inngest — Inngest event dispatch (production).
+   333→  - GET  /api/inngest — Inngest introspection probe.
+   334→  - PUT  /api/inngest — Inngest function sync.
+   335→  - POST /api/brain/jobs — dev-only manual trigger for the 4 runnable Brain jobs.
+   336→  - GET  /api/brain/jobs — list available dev jobs.
+   337→- Inngest functions (5, §65):
+   338→  - brain-memory-consolidation — cron "*/10 * * * *" — §22, §24 decay + §97 Rule 9.
+   339→  - brain-event-pipeline — event brain/event.received — §21 pipeline.
+   340→  - brain-knowledge-refresh — cron "0 3 * * *" — §33 refreshSchedule.
+   341→  - brain-evaluation-batch — event brain/evaluation.requested — §86-92 golden suite, emits brain/evaluation.completed.
+   342→  - brain-human-approval-wait — event brain/approval.required — §56 24h SLA, step.waitForEvent for brain/approval.received, AUTHORIZED/TIMED_OUT resolution.
+   343→- Adapter stubs registered (14, §27): cirkle, mail, olympex, mashahd, verify, wasl, aurienta, sgtx, mtq, judge_smart, egycourt, sgtx_fable, ppe, mtq_sigma. Each implements the BrainPlatformAdapter interface (getCapabilities + publishEvents + retrieveAuthorizedData + receiveBrainResponses + receiveKnowledgeUpdates + receiveModelCapabilities). All stubs log only — no external URL calls. Each carries governance boundary comment + Phase 0 audit context.
+   344→- Constraints honored:
+   345→  - TypeScript strict, `import type` for type-only imports.
+   346→  - NEVER imported z-ai-web-dev-sdk in any adapter or Inngest file (runBrain is lazily dynamic-imported inside runEvaluationBatch only).
+   347→  - No tests written.
+   348→  - Lint + tsc clean for all files I created/modified.
+   349→  - /api/inngest route at the Next.js app-router convention path.
+   350→  - Each Inngest function uses step.run / step.waitForEvent / step.sendEvent appropriately, wrapped in try/catch, NonRetriableError for permanent failures.
+   351→
+   352→---
+   353→Task ID: 11
+   354→Agent: acceptance-tests
+   355→Task: Build cross-platform acceptance test endpoints (§176-181)
+   356→
+   357→Work Log:
+   358→- Read worklog.md (Tasks 0-8+5 history), src/lib/brain/{types,memory,knowledge,learning,runtime,identity,policy,tools,event-bus,event-pipeline,platform-registry,seed,models,verification}.ts, prisma/schema.prisma, existing route handlers (events, respond, jobs, tools/execute, tools/approve, audit, platforms) to map out the existing Brain contract surface that the acceptance suite must exercise.
+   359→- Created `src/app/api/brain/acceptance/route.ts` (~700 LOC) exposing:
+   360→  - `POST /api/brain/acceptance { scenario: "<name>" | "all" }`
+   361→  - `GET /api/brain/acceptance?limit=&scenario=&status=` — lists recent AcceptanceTestRun rows
+   362→- Each scenario creates an `AcceptanceTestRun` row (status RUNNING) up front, runs assertions, finalizes with PASSED | FAILED | BLOCKED + JSON detail `{ spec, honestDisclaimer, steps, assertions, evidence }`. The `all` mode runs all 7 scenarios sequentially and returns the array plus passed/failed/blocked counts.
+   363→- Honored §186 honesty disclaimer in every scenario result: "this scenario exercises the Brain CONTRACT, not the actual external platform deployments. Adapter stubs log only; no external URLs are called. A PASSED result means the Brain honors the contract — it does NOT certify that the named platform is integrated."
+   364→- Implemented a self-contained `publishEvent()` helper (inline version of the /api/brain/events POST ingestion logic) so the acceptance suite does not depend on a running dev server. Uses `ensurePlatformRow`, `resolveDefaultTenantId`, `resolveDefaultApplicationId`, `validateEvent`, `isPlatformAcceptingEvents` from `@/lib/brain/event-bus` + `db.platformEvent.create` directly.
+   365→- Used `import "@/lib/brain/adapters"` (side-effect barrel) + `getAdapter` from `@/lib/brain/adapters/registry` so the in-memory adapter registry is populated for the failure_disconnect sub-test.
+   366→- `runBrain` is lazy-imported inside failure_disconnect only, so the SDK does not load for cold-start of other scenarios. The route file itself NEVER imports z-ai-web-dev-sdk.
+   367→- Every scenario wraps state mutations in try/finally with explicit restoration (platform status, model status) and explicit cleanup of test-created rows (synthetic tools, executions, audit events, memory items, knowledge items, platform events, learning candidates). Test-created content is prefixed with `ACCEPTANCE-TEST ...` + a random suffix for unique identifiability.
+   368→
+   369→Scenario implementations:
+   370→1. **privacy_isolation (§177)** — creates a PRIVATE-scoped mail memory under acme; attempts cross-tenant retrieval from globex (asserts 0 hits via tenant+application filter); publishes `brain.memory.candidate` from mail with scope=PRIVATE + classification=CONFIDENTIAL; runs §21 pipeline; asserts the event did NOT auto-promote into a retrievable MemoryItem. Documents contract gap: retrieveMemory does not enforce platform-level isolation or honor scope=PRIVATE beyond tenant+app — both mail and sgtx are linked to the same acme/mashahd app in seed.ts, so explicitly-created mail memory IS visible to sgtx at the application level (gap documented in the assertion note).
+   371→2. **knowledge_promotion (§178)** — creates a knowledge candidate (scope APPLICATION) for acme/mashahd; promotes via `promoteKnowledge`; retrieves from same tenant/app (asserts ≥1 hit); retrieves from globex (asserts 0 hits — tenant isolation works); creates a GLOBAL-scope knowledge item and attempts cross-tenant retrieval from globex. Documents contract gap: retrieveKnowledge always filters by tenantId+applicationId, so GLOBAL-scope cross-tenant sharing is NOT yet implemented (§18, §32).
+   372→3. **learning_loop (§179)** — publishes `learning.correction` from mail; runs §21 pipeline; asserts any created LearningCandidate has decision=PENDING (Rule 9, §97 — NEVER auto-promoted); manually decides PROMOTED via `decideCandidate`; asserts decision is now PROMOTED. Includes explicit note: "model was NOT retrained — system-level learning only (§36, §151)."
+   373→4. **failure_disconnect (§180)** — three sub-tests: (A) sets mtq_sigma platform status=DISABLED, verifies `getAdapter("mtq_sigma")` still exists in the in-memory registry (independent of DB), restores in finally; (B) sets FAST model status=OFFLINE, runs a simple query via lazy-imported `runBrain`, asserts the Brain continues to function (degraded service works) AND verifies the `fallbackUsed` flag — documents contract gap (§48): selectModel skips OFFLINE models and picks an alternative ACTIVE model; `fallbackUsed` only marks SDK call failures, not 'primary tier was unavailable'; restores model in finally; (C) runs an obscure query that triggers retrieval-degraded verification, asserts `evidenceStatus=UNKNOWN` per §163 (no fabrication).
+   374→5. **governance_sgtx (§181)** — registers a synthetic `sgtx.trade.execute.acceptance.<uuid>` tool with riskLevel=HIGH + approvalRequirement=true under acme; calls `executeTool`; asserts state=AUTHORIZED + requiresApproval=true + approved=false (does NOT auto-execute); asserts `tool.approval.required` audit event was created; cleans up synthetic tool + executions + audit events.
+   375→6. **governance_justice (§181)** — publishes `brain.application.request` from judge_smart asking for a "final ruling"; runs §21 pipeline; asserts any LearningCandidate created is PENDING (Rule 9, §97); asserts NO KnowledgeItem with type FACT/RULE was auto-created claiming to be a "judicial decision" (pipeline creates LearningCandidates only, never KnowledgeItems). Documents: "Brain provides research assistance only; human/legal authority required (§13, §46)."
+   376→7. **governance_finance (§181)** — same shape as governance_sgtx but for `mtq.trade.execute.acceptance.<uuid>` with riskLevel=CRITICAL + approvalRequirement=true. Asserts state=AUTHORIZED + audit event created. Cleanup.
+   377→- `governance_sgtx` and `governance_finance` share a single `scenarioGovernance(slug, toolId, riskLevel)` implementation with platform-specific spec text.
+   378→
+   379→Lint + tsc:
+   380→- `bun run lint` → exit 0, 0 errors 0 warnings (eslint passes for the whole repo with the existing permissive config).
+   381→- `npx tsc --noEmit` → 0 errors in any file I created/modified (src/app/api/brain/acceptance/route.ts). The 5 remaining errors are pre-existing in unrelated files (examples/websocket/frontend.tsx, examples/websocket/server.ts, scripts/gen-logo.ts, skills/image-edit/scripts/image-edit.ts, skills/stock-analysis-skill/src/analyzer.ts) — out of scope per task constraints (documented in Task 8's worklog entry).
+   382→
+   383→Stage Summary:
+   384→- Endpoint created: `src/app/api/brain/acceptance/route.ts`
+   385→  - `POST /api/brain/acceptance { scenario }` — runs one of 7 scenarios OR `all`
+   386→  - `GET  /api/brain/acceptance?limit=&scenario=&status=` — lists recent AcceptanceTestRun rows
+   387→- 7 scenarios (one AcceptanceTestRun row each):
+   388→  - `privacy_isolation` (§177) — private mail memory cannot leak cross-tenant + PRIVATE event must not auto-promote to retrievable memory
+   389→  - `knowledge_promotion` (§178) — knowledge candidate → promotion → scope-aware retrieval; documents GLOBAL cross-tenant gap
+   390→  - `learning_loop` (§179) — correction event → PENDING candidate → manual PROMOTED decision; model NOT retrained
+   391→  - `failure_disconnect` (§180) — platform DISABLE, model OFFLINE, retrieval-degraded UNKNOWN; documents §48 fallbackUsed gap
+   392→  - `governance_sgtx` (§181) — HIGH-risk trade tool pauses at AUTHORIZED + audit event
+   393→  - `governance_justice` (§181) — Brain cannot autonomously issue final judicial decisions (PENDING candidate only, no auto-knowledge)
+   394→  - `governance_finance` (§181) — CRITICAL-risk finance tool pauses at AUTHORIZED + audit event
+   395→- Each scenario result carries: `{ scenario, status: PASSED|FAILED|BLOCKED, detail: { spec, honestDisclaimer, steps, assertions, evidence }, runId, startedAt, completedAt }`.
+   396→- Honest disclaimers embedded per §186: tests exercise the Brain CONTRACT, not external platform deployments.
+   397→- Contract gaps explicitly surfaced (not hidden):
+   398→  - retrieveMemory does not enforce platform-level isolation or honor scope=PRIVATE (§18, §40) — exposed in privacy_isolation
+   399→  - retrieveKnowledge does not support GLOBAL cross-tenant retrieval (§18, §32) — exposed in knowledge_promotion
+   400→  - `fallbackUsed` flag only reflects SDK call failures, not 'primary tier was unavailable' (§48) — exposed in failure_disconnect
+   401→- All mutated DB state restored in finally blocks; test-created rows (memory, knowledge, candidates, events, tools, executions, audit events) cleaned up explicitly.
+   402→- NEVER imported z-ai-web-dev-sdk in the acceptance route (runBrain lazy-imported inside failure_disconnect only).
+   403→- Lint clean + tsc clean for the new file.
+   404→
+   405→---
+   406→Task ID: 9-13
+   407→Agent: orchestrator (main)
+   408→Task: Seed 14 platforms, build platform control plane UI, acceptance test verification, browser verification, final report
+   409→
+   410→Work Log:
+   411→- Updated `src/lib/brain/seed.ts` to register all 14 platforms (Platform table), 14 adapter registrations, 14 platform-app links, 14 per-platform golden evaluation sets. Re-seeded Neon: `platforms: 14`.
+   412→- Built `src/app/api/brain/platforms/route.ts` (GET — list all platforms with adapter-loaded status, capabilities, tools, scopes, health rollups) + `src/app/api/brain/platforms/[slug]/route.ts` (GET single + PATCH control plane §90, §165 with audit).
+   413→- Fixed adapter registry side-effect import in platforms route → `adaptersLoaded: 14` confirmed.
+   414→- Built `src/components/brain/platform-control-plane.tsx`: summary stats (total/active/audited/adapters), acceptance suite runner (Run all button → POST /api/brain/acceptance scenario=all), platform list with expandable rows showing capabilities/tools/event-types/scopes/risk-ceiling/data-class/governance-boundary/repo+prod links + enable/disable toggle (§167).
+   415→- Added PlatformSelector (shadcn Select) to brain-widget header next to ModeSelector; passes `platformSlug` in respond request body.
+   416→- Updated `src/app/api/brain/respond/route.ts` to accept `platformSlug` and pass it via `metadata`.
+   417→- Updated `src/lib/brain/runtime.ts` context-engine step to resolve platform by slug, inject personality (tone, vocabulary, systemPromptSuffix §157) + governance boundary text (§11/§45/§46/§47) into the system prompt.
+   418→- Added "Platforms" as the default 4th tab in AdminConsole (Platforms | Health | Metrics | Audit).
+   419→- Fixed React error in PlatformControlPlane: acceptance "all" response is `{ results: [...] }` not an array — `runAcceptance` now handles both shapes.
+   420→- Browser-verified with Agent Browser:
+   421→  - Page renders cleanly, no console errors
+   422→  - Platform selector shows "Mashahd" + all 13 active platforms in dropdown
+   423→  - Platforms tab shows all 14 platforms with status/adapter✓/risk/class badges
+   424→  - Acceptance suite "Run all" executes all 7 scenarios, renders PASSED/FAILED results in UI
+   425→  - 4/7 PASSED (learning_loop, governance_sgtx, governance_justice, governance_finance)
+   426→  - 3/7 FAILED (privacy_isolation, knowledge_promotion, failure_disconnect) — honestly surface real contract gaps per §186
+   427→- Lint clean, tsc clean (0 errors in src/), no dev log errors.
+   428→- Wrote `docs/final-report.md` (§186 required final report: 29 sections covering architecture, 14 platforms, 14 adapters, Brain API, SDK, events, memory, knowledge, learning, model routing, tools, security, tenant isolation, governance boundaries, DB/GitHub/Vercel/Inngest/Neon/Turso changes, tests, evaluation results, performance, cost, known limitations, deferred features, rollback plan, next phase, honest assessment).
+   429→
+   430→Stage Summary:
+   431→- WEDJAT BRAIN cross-platform integration Phase 1 (§138) complete: central Brain contract built
+   432→- 14 platforms registered + 14 adapter stubs loaded + cross-platform event bus + Inngest + SDK + acceptance suite + platform control plane UI
+   433→- Neon is canonical Brain DB (§63); Turso optional (§64); Inngest wired for background learning (§65)
+   434→- 4/7 acceptance scenarios pass (all governance boundaries pass — the most critical safety tests)
+   435→- 3 failures honestly documented as contract gaps (§186: "Never claim a platform is integrated when only its repository has been inspected")
+   436→- Credentials in .env (gitignored) + SECURITY.md with rotation warning (§60-61)
+   437→- Phase 0 audit at docs/phase0-audit.md; final report at docs/final-report.md
+   438→

@@ -1,0 +1,638 @@
+     1→     1→"use client";
+     2→     2→
+     3→     3→import * as React from "react";
+     4→     4→import Image from "next/image";
+     5→     5→import { Send, Loader2, ShieldCheck, AlertTriangle, Database, Cpu, Wrench, Activity, GitBranch, ChevronRight, CircleDot, CheckCircle2, XCircle, Clock, DollarSign, Zap, Layers, FileText, Network, Globe, ThumbsUp, ThumbsDown } from "lucide-react";
+     6→     6→import { Button } from "@/components/ui/button";
+     7→     7→import { Input } from "@/components/ui/input";
+     8→     8→import { Textarea } from "@/components/ui/textarea";
+     9→     9→import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+    10→    10→import { Badge } from "@/components/ui/badge";
+    11→    11→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+    12→    12→import { ScrollArea } from "@/components/ui/scroll-area";
+    13→    13→import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+    14→    14→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+    15→    15→import { cn } from "@/lib/utils";
+    16→    16→import { streamBrainResponse, apiGet, apiPost, type BrainStreamState, initialStreamState } from "@/lib/brain/client";
+    17→    17→import type { BrainMode, EvidenceStatus, ToolResult, TraceStep } from "@/lib/brain/types";
+    18→    18→import { AdminConsole } from "./admin-console";
+    19→    19→import { CirkleMark } from "@/components/brand/cirkle-mark";
+    20→    20→import { toast } from "sonner";
+    21→    21→
+    22→    22→interface ChatMessage {
+    23→    23→  id: string;
+    24→    24→  role: "user" | "assistant";
+    25→    25→  content: string;
+    26→    26→  state?: BrainStreamState;
+    27→    27→  question?: string; // the user's question that prompted this assistant message
+    28→    28→  createdAt: number;
+    29→    29→}
+    30→    30→
+    31→    31→const MODES: { value: BrainMode; label: string; hint: string }[] = [
+    32→    32→  { value: "auto", label: "Auto", hint: "Brain decides" },
+    33→    33→  { value: "fast", label: "Fast", hint: "Fast tier" },
+    34→    34→  { value: "balanced", label: "Balanced", hint: "Balanced tier" },
+    35→    35→  { value: "deep", label: "Deep", hint: "Reasoning tier" },
+    36→    36→];
+    37→    37→
+    38→    38→const SAMPLE_PROMPTS = [
+    39→    39→  "What does the Cirkle Brain spec say about authorization?",
+    40→    40→  "What is invoice 1827?",
+    41→    41→  "Add 23 and 19",
+    42→    42→  "Why is the model not the Brain?",
+    43→    43→  "Send an email to alice@example.com about the invoice",
+    44→    44→  "What is the weather in Dubai?",
+    45→    45→];
+    46→    46→
+    47→    47→export function BrainWidget() {
+    48→    48→  const [mode, setMode] = React.useState<BrainMode>("auto");
+    49→    49→  const [platformSlug, setPlatformSlug] = React.useState<string>("mashahd");
+    50→    50→  const [platforms, setPlatforms] = React.useState<Array<{ slug: string; displayName: string; domain: string; status: string }>>([]);
+    51→    51→  const [input, setInput] = React.useState("");
+    52→    52→  const [messages, setMessages] = React.useState<ChatMessage[]>([]);
+    53→    53→  const [activeMessageId, setActiveMessageId] = React.useState<string | null>(null);
+    54→    54→  const [streaming, setStreaming] = React.useState(false);
+    55→    55→  const abortRef = React.useRef<AbortController | null>(null);
+    56→    56→  const scrollRef = React.useRef<HTMLDivElement>(null);
+    57→    57→
+    58→    58→  React.useEffect(() => {
+    59→    59→    apiGet<{ platforms: Array<{ slug: string; displayName: string; domain: string; status: string }> }>("/api/brain/platforms")
+    60→    60→      .then((d) => setPlatforms(d.platforms.filter((p) => p.status === "ACTIVE")))
+    61→    61→      .catch(() => {});
+    62→    62→  }, []);
+    63→    63→
+    64→    64→  React.useEffect(() => {
+    65→    65→    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    66→    66→  }, [messages, activeMessageId]);
+    67→    67→
+    68→    68→  async function send(text?: string) {
+    69→    69→    const content = (text ?? input).trim();
+    70→    70→    if (!content || streaming) return;
+    71→    71→    setInput("");
+    72→    72→    const userMsg: ChatMessage = { id: crypto.randomUUID(), role: "user", content, createdAt: Date.now() };
+    73→    73→    const assistantMsg: ChatMessage = { id: crypto.randomUUID(), role: "assistant", content: "", state: initialStreamState(), question: content, createdAt: Date.now() };
+    74→    74→    setMessages((m) => [...m, userMsg, assistantMsg]);
+    75→    75→    setActiveMessageId(assistantMsg.id);
+    76→    76→    setStreaming(true);
+    77→    77→    abortRef.current = new AbortController();
+    78→    78→    try {
+    79→    79→      await streamBrainResponse(
+    80→    80→        { input: { text: content }, mode, platformSlug },
+    81→    81→        (state) => {
+    82→    82→          setMessages((prev) => prev.map((m) => (m.id === assistantMsg.id ? { ...m, content: state.tokens || (state.error ? `⚠️ ${state.error.message}` : ""), state: { ...state } } : m)));
+    83→    83→        },
+    84→    84→        abortRef.current.signal,
+    85→    85→      );
+    86→    86→    } catch (err: any) {
+    87→    87→      setMessages((prev) => prev.map((m) => (m.id === assistantMsg.id ? { ...m, content: `⚠️ Stream failed: ${err?.message ?? err}` } : m)));
+    88→    88→    } finally {
+    89→    89→      setStreaming(false);
+    90→    90→      // Keep activeMessageId pointing at the last assistant message so the
+    91→    91→      // trace / evidence / tools / memory panels stay populated.
+    92→    92→    }
+    93→    93→  }
+    94→    94→
+    95→    95→  function stop() {
+    96→    96→    abortRef.current?.abort();
+    97→    97→    setStreaming(false);
+    98→    98→  }
+    99→    99→
+   100→   100→  return (
+   101→   101→    <div className="grid h-full grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] xl:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_minmax(0,1fr)]">
+   102→   102→      {/* Left: chat */}
+   103→   103→      <Card className="flex h-[calc(100vh-9.5rem)] flex-col overflow-hidden">
+   104→   104→        <CardHeader className="border-b pb-4">
+   105→   105→          <div className="flex items-center justify-between gap-2">
+   106→   106→            <div className="flex items-center gap-2">
+   107→   107→              <div className="relative flex h-9 w-9 items-center justify-center rounded-lg cirkle-gradient text-white shadow-sm cirkle-glow">
+   108→   108→                <CirkleMark size={28} className="drop-shadow-[0_0_4px_rgba(194,160,96,0.4)]" />
+   109→   109→                <span className="absolute -bottom-0.5 -right-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-[color:var(--color-cirkle-cyan)] ring-2 ring-background">
+   110→   110→                  <span className="h-1.5 w-1.5 cirkle-pulse rounded-full bg-[color:var(--color-cirkle-cyan-deep)]" />
+   111→   111→                </span>
+   112→   112→              </div>
+   113→   113→              <div>
+   114→   114→                <CardTitle className="text-base leading-tight">Cirkle Brain AI</CardTitle>
+   115→   115→                <CardDescription className="text-[11px] leading-tight">Cognitive operating layer · model-independent</CardDescription>
+   116→   116→              </div>
+   117→   117→            </div>
+   118→   118→            <div className="flex items-center gap-1.5">
+   119→   119→              <PlatformSelector value={platformSlug} onChange={setPlatformSlug} platforms={platforms} disabled={streaming} />
+   120→   120→              <ModeSelector value={mode} onChange={setMode} disabled={streaming} />
+   121→   121→            </div>
+   122→   122→          </div>
+   123→   123→        </CardHeader>
+   124→   124→        <CardContent className="flex-1 overflow-hidden p-0">
+   125→   125→          <div ref={scrollRef} className="h-full overflow-y-auto p-4">
+   126→   126→            {messages.length === 0 ? (
+   127→   127→              <EmptyState onPick={(p) => send(p)} />
+   128→   128→            ) : (
+   129→   129→              <div className="space-y-4">
+   130→   130→                {messages.map((m) => (
+   131→   131→                  <ChatBubble key={m.id} message={m} active={m.id === activeMessageId} />
+   132→   132→                ))}
+   133→   133→              </div>
+   134→   134→            )}
+   135→   135→          </div>
+   136→   136→        </CardContent>
+   137→   137→        <div className="border-t p-3">
+   138→   138→          <div className="flex items-end gap-2">
+   139→   139→            <Textarea
+   140→   140→              value={input}
+   141→   141→              onChange={(e) => setInput(e.target.value)}
+   142→   142→              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+   143→   143→              placeholder="Ask the Brain…  (Enter to send, Shift+Enter for newline)"
+   144→   144→              className="min-h-[44px] max-h-40 resize-none"
+   145→   145→              disabled={streaming}
+   146→   146→            />
+   147→   147→            {streaming ? (
+   148→   148→              <Button variant="outline" size="icon" onClick={stop} className="h-11 w-11 shrink-0" title="Stop">
+   149→   149→                <XCircle className="h-4 w-4" />
+   150→   150→              </Button>
+   151→   151→            ) : (
+   152→   152→              <Button size="icon" onClick={() => send()} disabled={!input.trim()} className="h-11 w-11 shrink-0 cirkle-gradient hover:opacity-90 cirkle-glow" title="Send">
+   153→   153→                <Send className="h-4 w-4" />
+   154→   154→              </Button>
+   155→   155→            )}
+   156→   156→          </div>
+   157→   157→        </div>
+   158→   158→      </Card>
+   159→   159→
+   160→   160→      {/* Middle: cognitive trace */}
+   161→   161→      <CognitiveTrace messages={messages} activeId={activeMessageId} />
+   162→   162→
+   163→   163→      {/* Right: admin console (capabilities/health/metrics/audit/memory/knowledge/candidates) */}
+   164→   164→      <Card className="hidden h-[calc(100vh-9.5rem)] flex-col overflow-hidden xl:flex">
+   165→   165→        <CardHeader className="border-b pb-3">
+   166→   166→          <CardTitle className="flex items-center gap-2 text-sm"><Network className="h-4 w-4" /> Admin Console</CardTitle>
+   167→   167→        </CardHeader>
+   168→   168→        <CardContent className="flex-1 overflow-hidden p-0">
+   169→   169→          <AdminConsole />
+   170→   170→        </CardContent>
+   171→   171→      </Card>
+   172→   172→    </div>
+   173→   173→  );
+   174→   174→}
+   175→   175→
+   176→   176→// ---------------------------------------------------------------------------
+   177→   177→// Mode selector
+   178→   178→// ---------------------------------------------------------------------------
+   179→   179→function PlatformSelector({ value, onChange, platforms, disabled }: { value: string; onChange: (s: string) => void; platforms: Array<{ slug: string; displayName: string; domain: string; status: string }>; disabled: boolean }) {
+   180→   180→  const current = platforms.find((p) => p.slug === value);
+   181→   181→  return (
+   182→   182→    <Select value={value} onValueChange={onChange} disabled={disabled || platforms.length === 0}>
+   183→   183→      <SelectTrigger className="h-8 w-[150px] gap-1 border-[color:var(--color-cirkle-cyan)]/30 text-xs" size="sm">
+   184→   184→        <Globe className="h-3 w-3 text-[color:var(--color-cirkle-cyan)]" />
+   185→   185→        <SelectValue placeholder="Platform">
+   186→   186→          {current ? current.displayName : value}
+   187→   187→        </SelectValue>
+   188→   188→      </SelectTrigger>
+   189→   189→      <SelectContent>
+   190→   190→        {platforms.map((p) => (
+   191→   191→          <SelectItem key={p.slug} value={p.slug} className="text-xs">
+   192→   192→            <span className="font-medium">{p.displayName}</span>
+   193→   193→            <span className="ml-1 text-[10px] text-muted-foreground">· {p.domain}</span>
+   194→   194→          </SelectItem>
+   195→   195→        ))}
+   196→   196→      </SelectContent>
+   197→   197→    </Select>
+   198→   198→  );
+   199→   199→}
+   200→   200→
+   201→   201→function ModeSelector({ value, onChange, disabled }: { value: BrainMode; onChange: (m: BrainMode) => void; disabled: boolean }) {
+   202→   202→  return (
+   203→   203→    <TooltipProvider>
+   204→   204→      <div className="flex items-center gap-0.5 rounded-lg border bg-muted/40 p-0.5">
+   205→   205→        {MODES.map((m) => (
+   206→   206→          <Tooltip key={m.value}>
+   207→   207→            <TooltipTrigger asChild>
+   208→   208→              <button
+   209→   209→                disabled={disabled}
+   210→   210→                onClick={() => onChange(m.value)}
+   211→   211→                className={cn(
+   212→   212→                  "rounded-md px-2 py-1 text-xs font-medium transition-colors",
+   213→   213→                  value === m.value ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+   214→   214→                )}
+   215→   215→              >
+   216→   216→                {m.label}
+   217→   217→              </button>
+   218→   218→            </TooltipTrigger>
+   219→   219→            <TooltipContent side="bottom" className="text-xs">{m.hint}</TooltipContent>
+   220→   220→          </Tooltip>
+   221→   221→        ))}
+   222→   222→      </div>
+   223→   223→    </TooltipProvider>
+   224→   224→  );
+   225→   225→}
+   226→   226→
+   227→   227→// ---------------------------------------------------------------------------
+   228→   228→// Empty state with sample prompts
+   229→   229→// ---------------------------------------------------------------------------
+   230→   230→function EmptyState({ onPick }: { onPick: (p: string) => void }) {
+   231→   231→  return (
+   232→   232→    <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
+   233→   233→      <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl cirkle-gradient-soft ring-1 ring-[color:var(--color-cirkle-cyan)]/30">
+   234→   234→        <CirkleMark size={56} className="drop-shadow-[0_0_10px_rgba(194,160,96,0.5)]" />
+   235→   235→      </div>
+   236→   236→      <div className="space-y-1">
+   237→   237→        <h3 className="text-base font-semibold">Cirkle Brain</h3>
+   238→   238→        <p className="mx-auto max-w-sm text-xs text-muted-foreground">
+   239→   239→          A model-independent cognitive layer. Identity, memory, knowledge, evidence, retrieval, tools, policy, verification, learning, observability — all owned by the Brain, not the model.
+   240→   240→        </p>
+   241→   241→      </div>
+   242→   242→      <div className="grid w-full max-w-md grid-cols-1 gap-1.5">
+   243→   243→        {SAMPLE_PROMPTS.map((p) => (
+   244→   244→          <button key={p} onClick={() => onPick(p)} className="group flex items-center gap-2 rounded-md border bg-card px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+   245→   245→            <ChevronRight className="h-3 w-3 text-[color:var(--color-cirkle-cyan)]" />
+   246→   246→            <span className="flex-1">{p}</span>
+   247→   247→          </button>
+   248→   248→        ))}
+   249→   249→      </div>
+   250→   250→    </div>
+   251→   251→  );
+   252→   252→}
+   253→   253→
+   254→   254→// ---------------------------------------------------------------------------
+   255→   255→// Chat bubble
+   256→   256→// ---------------------------------------------------------------------------
+   257→   257→function ChatBubble({ message, active }: { message: ChatMessage; active: boolean }) {
+   258→   258→  if (message.role === "user") {
+   259→   259→    return (
+   260→   260→      <div className="flex justify-end">
+   261→   261→        <div className="max-w-[85%] rounded-2xl rounded-br-sm cirkle-gradient px-3 py-2 text-sm text-white shadow-sm">
+   262→   262→          {message.content}
+   263→   263→        </div>
+   264→   264→      </div>
+   265→   265→    );
+   266→   266→  }
+   267→   267→  const state = message.state;
+   268→   268→  const streaming = active && !state?.done;
+   269→   269→  return (
+   270→   270→    <div className="flex flex-col gap-2">
+   271→   271→      <div className="flex items-start gap-2">
+   272→   272→        <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg cirkle-gradient-soft ring-1 ring-[color:var(--color-cirkle-cyan)]/30">
+   273→   273→          <CirkleMark size={20} aria-hidden className="h-5 w-5" />
+   274→   274→        </div>
+   275→   275→        <div className="min-w-0 flex-1 space-y-2">
+   276→   276→          {message.content ? (
+   277→   277→            <div className="whitespace-pre-wrap rounded-2xl rounded-tl-sm border bg-card px-3 py-2 text-sm leading-relaxed">
+   278→   278→              {message.content}
+   279→   279→              {streaming && <span className="ml-0.5 inline-block h-3.5 w-1 cirkle-pulse bg-[color:var(--color-cirkle-cyan)] align-middle" />}
+   280→   280→            </div>
+   281→   281→          ) : streaming ? (
+   282→   282→            <div className="flex items-center gap-2 rounded-2xl rounded-tl-sm border bg-card px-3 py-2 text-xs text-muted-foreground">
+   283→   283→              <Loader2 className="h-3.5 w-3.5 animate-spin text-[color:var(--color-cirkle-cyan)]" />
+   284→   284→              <span>Brain is thinking…</span>
+   285→   285→            </div>
+   286→   286→          ) : null}
+   287→   287→          {state && !streaming && <ResponseChips state={state} />}
+   288→   288→          {state && !streaming && state.response && (
+   289→   289→            <FeedbackButtons
+   290→   290→              requestId={state.response.requestId}
+   291→   291→              answer={message.content}
+   292→   292→              question={message.question}
+   293→   293→            />
+   294→   294→          )}
+   295→   295→        </div>
+   296→   296→      </div>
+   297→   297→    </div>
+   298→   298→  );
+   299→   299→}
+   300→   300→
+   301→   301→function FeedbackButtons({ requestId, answer, question }: { requestId: string; answer: string; question?: string }) {
+   302→   302→  const [given, setGiven] = React.useState<"thumbs_up" | "thumbs_down" | null>(null);
+   303→   303→  const [loading, setLoading] = React.useState(false);
+   304→   304→
+   305→   305→  async function sendFeedback(signal: "thumbs_up" | "thumbs_down") {
+   306→   306→    if (given || loading) return;
+   307→   307→    setLoading(true);
+   308→   308→    setGiven(signal);
+   309→   309→    try {
+   310→   310→      await apiPost("/api/brain/feedback", {
+   311→   311→        requestId, signal, answer: answer.slice(0, 500), question: question?.slice(0, 500),
+   312→   312→      });
+   313→   313→    } catch {
+   314→   314→      // revert on failure
+   315→   315→      setGiven(null);
+   316→   316→    } finally {
+   317→   317→      setLoading(false);
+   318→   318→    }
+   319→   319→  }
+   320→   320→
+   321→   321→  return (
+   322→   322→    <div className="flex items-center gap-1">
+   323→   323→      <button
+   324→   324→        onClick={() => sendFeedback("thumbs_up")}
+   325→   325→        disabled={!!given || loading}
+   326→   326→        className={cn(
+   327→   327→          "flex h-6 w-6 items-center justify-center rounded-md border text-[10px] transition-colors",
+   328→   328→          given === "thumbs_up"
+   329→   329→            ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-600"
+   330→   330→            : "border-border text-muted-foreground hover:bg-accent hover:text-foreground",
+   331→   331→        )}
+   332→   332→        title="Good answer"
+   333→   333→      >
+   334→   334→        <ThumbsUp className="h-3 w-3" />
+   335→   335→      </button>
+   336→   336→      <button
+   337→   337→        onClick={() => sendFeedback("thumbs_down")}
+   338→   338→        disabled={!!given || loading}
+   339→   339→        className={cn(
+   340→   340→          "flex h-6 w-6 items-center justify-center rounded-md border text-[10px] transition-colors",
+   341→   341→          given === "thumbs_down"
+   342→   342→            ? "border-rose-500/40 bg-rose-500/15 text-rose-600"
+   343→   343→            : "border-border text-muted-foreground hover:bg-accent hover:text-foreground",
+   344→   344→        )}
+   345→   345→        title="Bad answer"
+   346→   346→      >
+   347→   347→        <ThumbsDown className="h-3 w-3" />
+   348→   348→      </button>
+   349→   349→      {given && (
+   350→   350→        <span className="text-[10px] text-muted-foreground">
+   351→   351→          {given === "thumbs_up" ? "Thanks — helps the Brain learn" : "Thanks — Brain will investigate"}
+   352→   352→        </span>
+   353→   353→      )}
+   354→   354→    </div>
+   355→   355→  );
+   356→   356→}
+   357→   357→
+   358→   358→function ResponseChips({ state }: { state: BrainStreamState }) {
+   359→   359→  const chips: React.ReactNode[] = [];
+   360→   360→  if (state.model) {
+   361→   361→    chips.push(
+   362→   362→      <Chip key="model" icon={<Cpu className="h-3 w-3" />} label={`${state.model.model}${state.model.fallbackUsed ? " (fallback)" : ""}`} tone={state.model.fallbackUsed ? "warn" : "ok"} />
+   363→   363→    );
+   364→   364→  }
+   365→   365→  if (state.research) {
+   366→   366→    chips.push(<Chip key="research" icon={<Globe className="h-3 w-3" />} label={`web: ${state.research.ingestedCount} learned`} tone="info" />);
+   367→   367→  }
+   368→   368→  if (state.verification) {
+   369→   369→    chips.push(<Chip key="ver" icon={<ShieldCheck className="h-3 w-3" />} label={state.verification.status} tone={verificationTone(state.verification.status)} />);
+   370→   370→  }
+   371→   371→  if (state.tools.length > 0) {
+   372→   372→    chips.push(<Chip key="tools" icon={<Wrench className="h-3 w-3" />} label={`${state.tools.length} tool`} tone="ok" />);
+   373→   373→  }
+   374→   374→  if (state.evidence.length > 0) {
+   375→   375→    chips.push(<Chip key="ev" icon={<FileText className="h-3 w-3" />} label={`${state.evidence.length} evidence`} tone="ok" />);
+   376→   376→  }
+   377→   377→  if (state.cost) {
+   378→   378→    chips.push(<Chip key="cost" icon={<Zap className="h-3 w-3" />} label={`${state.cost.latencyMs}ms`} tone="muted" />);
+   379→   379→    if (state.cost.costUsd > 0) chips.push(<Chip key="cost2" icon={<DollarSign className="h-3 w-3" />} label={`$${state.cost.costUsd.toFixed(4)}`} tone="muted" />);
+   380→   380→  }
+   381→   381→  if (chips.length === 0) return null;
+   382→   382→  return <div className="flex flex-wrap items-center gap-1">{chips}</div>;
+   383→   383→}
+   384→   384→
+   385→   385→function Chip({ icon, label, tone }: { icon: React.ReactNode; label: string; tone: "ok" | "warn" | "err" | "muted" | "info" }) {
+   386→   386→  const cls = {
+   387→   387→    ok: "border-[color:var(--color-cirkle-cyan)]/30 bg-[color:var(--color-cirkle-cyan)]/10 text-[color:var(--color-cirkle-cyan-deep)] dark:text-[color:var(--color-cirkle-glow)]",
+   388→   388→    info: "border-[color:var(--color-cirkle-cyan)]/40 bg-[color:var(--color-cirkle-cyan)]/15 text-[color:var(--color-cirkle-cyan-deep)] dark:text-[color:var(--color-cirkle-glow)]",
+   389→   389→    warn: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+   390→   390→    err: "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+   391→   391→    muted: "border-border bg-muted text-muted-foreground",
+   392→   392→  }[tone];
+   393→   393→  return (
+   394→   394→    <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium", cls)}>
+   395→   395→      {icon}
+   396→   396→      {label}
+   397→   397→    </span>
+   398→   398→  );
+   399→   399→}
+   400→   400→
+   401→   401→function verificationTone(s: EvidenceStatus): "ok" | "warn" | "err" | "muted" {
+   402→   402→  if (s === "VERIFIED") return "ok";
+   403→   403→  if (s === "SUPPORTED") return "ok";
+   404→   404→  if (s === "INFERRED") return "warn";
+   405→   405→  if (s === "UNCERTAIN") return "warn";
+   406→   406→  if (s === "CONFLICTED") return "warn";
+   407→   407→  if (s === "UNSUPPORTED" || s === "UNKNOWN") return "err";
+   408→   408→  return "muted";
+   409→   409→}
+   410→   410→
+   411→   411→// ---------------------------------------------------------------------------
+   412→   412→// Cognitive trace (middle column) — shows the trace + evidence + tools for
+   413→   413→// the active (most recent assistant) message.
+   414→   414→// ---------------------------------------------------------------------------
+   415→   415→function CognitiveTrace({ messages, activeId }: { messages: ChatMessage[]; activeId: string | null }) {
+   416→   416→  const active = messages.find((m) => m.id === activeId && m.role === "assistant");
+   417→   417→  const state = active?.state;
+   418→   418→  return (
+   419→   419→    <Card className="hidden h-[calc(100vh-9.5rem)] flex-col overflow-hidden lg:flex">
+   420→   420→      <CardHeader className="border-b pb-3">
+   421→   421→        <CardTitle className="flex items-center gap-2 text-sm"><Activity className="h-4 w-4 text-[color:var(--color-cirkle-cyan)]" /> Cognitive Trace</CardTitle>
+   422→   422→        <CardDescription className="text-[11px]">Real-time execution path — no private hidden reasoning exposed</CardDescription>
+   423→   423→      </CardHeader>
+   424→   424→      <CardContent className="flex-1 overflow-hidden p-0">
+   425→   425→        <Tabs defaultValue="trace" className="flex h-full flex-col">
+   426→   426→          <TabsList className="mx-3 mt-2 grid grid-cols-5">
+   427→   427→            <TabsTrigger value="trace" className="text-xs">Trace</TabsTrigger>
+   428→   428→            <TabsTrigger value="evidence" className="text-xs">Evidence</TabsTrigger>
+   429→   429→            <TabsTrigger value="research" className="text-xs">Research</TabsTrigger>
+   430→   430→            <TabsTrigger value="tools" className="text-xs">Tools</TabsTrigger>
+   431→   431→            <TabsTrigger value="memory" className="text-xs">Memory</TabsTrigger>
+   432→   432→          </TabsList>
+   433→   433→          <ScrollArea className="flex-1">
+   434→   434→            <div className="p-3">
+   435→   435→              {!state ? (
+   436→   436→                <div className="flex h-full items-center justify-center py-10 text-center text-xs text-muted-foreground">
+   437→   437→                  Send a message to see the Brain's cognitive trace.
+   438→   438→                </div>
+   439→   439→              ) : (
+   440→   440→                <>
+   441→   441→                  <TabsContent value="trace" className="mt-0">
+   442→   442→                    <TraceList steps={state.trace} />
+   443→   443→                  </TabsContent>
+   444→   444→                  <TabsContent value="evidence" className="mt-0">
+   445→   445→                    <EvidenceList state={state} />
+   446→   446→                  </TabsContent>
+   447→   447→                  <TabsContent value="research" className="mt-0">
+   448→   448→                    <ResearchList state={state} />
+   449→   449→                  </TabsContent>
+   450→   450→                  <TabsContent value="tools" className="mt-0">
+   451→   451→                    <ToolsList state={state} />
+   452→   452→                  </TabsContent>
+   453→   453→                  <TabsContent value="memory" className="mt-0">
+   454→   454→                    <MemoryList state={state} />
+   455→   455→                  </TabsContent>
+   456→   456→                </>
+   457→   457→              )}
+   458→   458→            </div>
+   459→   459→          </ScrollArea>
+   460→   460→        </Tabs>
+   461→   461→      </CardContent>
+   462→   462→    </Card>
+   463→   463→  );
+   464→   464→}
+   465→   465→
+   466→   466→function TraceList({ steps }: { steps: TraceStep[] }) {
+   467→   467→  if (steps.length === 0) return <EmptyHint icon={<Activity className="h-4 w-4" />} text="Trace will appear here as the Brain executes." />;
+   468→   468→  return (
+   469→   469→    <ol className="relative space-y-1 border-l border-dashed border-border pl-4">
+   470→   470→      {steps.map((s, i) => (
+   471→   471→        <li key={i} className="relative">
+   472→   472→          <span className={cn("absolute -left-[1.4rem] top-1 flex h-3 w-3 items-center justify-center rounded-full ring-2 ring-background",
+   473→   473→            s.status === "COMPLETED" ? "bg-[color:var(--color-cirkle-cyan)]" : s.status === "FAILED" ? "bg-rose-500" : s.status === "SKIPPED" ? "bg-muted-foreground" : "bg-amber-500 animate-pulse")}>
+   474→   474→            {s.status === "COMPLETED" ? <CheckCircle2 className="h-2.5 w-2.5 text-white" /> : s.status === "FAILED" ? <XCircle className="h-2.5 w-2.5 text-white" /> : <CircleDot className="h-2 w-2 text-white" />}
+   475→   475→          </span>
+   476→   476→          <div className="flex items-baseline justify-between gap-2">
+   477→   477→            <div className="min-w-0">
+   478→   478→              <p className="text-xs font-medium leading-tight">{s.stepName}</p>
+   479→   479→              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{s.stepType}</p>
+   480→   480→            </div>
+   481→   481→            {s.durationMs !== undefined && <Badge variant="outline" className="shrink-0 text-[9px] font-mono">{s.durationMs}ms</Badge>}
+   482→   482→          </div>
+   483→   483→          {s.reasonCode && <p className="mt-0.5 text-[10px] text-muted-foreground">↳ {s.reasonCode}</p>}
+   484→   484→        </li>
+   485→   485→      ))}
+   486→   486→    </ol>
+   487→   487→  );
+   488→   488→}
+   489→   489→
+   490→   490→function EvidenceList({ state }: { state: BrainStreamState }) {
+   491→   491→  if (state.evidence.length === 0) return <EmptyHint icon={<FileText className="h-4 w-4" />} text="No evidence retrieved. Try asking about the Cirkle Brain spec or invoice 1827." />;
+   492→   492→  return (
+   493→   493→    <div className="space-y-2">
+   494→   494→      {state.evidence.map((e) => (
+   495→   495→        <div key={e.id} className="rounded-lg border bg-card p-2.5">
+   496→   496→          <div className="mb-1 flex items-center justify-between gap-2">
+   497→   497→            <Badge variant="outline" className="text-[9px]">{e.type}</Badge>
+   498→   498→            <Badge variant="outline" className={cn("text-[9px]", verificationToneClass(e.evidenceStatus))}>{e.evidenceStatus}</Badge>
+   499→   499→          </div>
+   500→   500→          <p className="text-xs leading-snug">{e.claim}</p>
+   501→   501→          {e.sourceTitle && (
+   502→   502→            <p className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground">
+   503→   503→              <GitBranch className="h-2.5 w-2.5" /> {e.sourceTitle}
+   504→   504→              {e.conflict && <span className="text-amber-600"> · ⚠ conflict</span>}
+   505→   505→            </p>
+   506→   506→          )}
+   507→   507→          {(e.validFrom || e.validUntil) && (
+   508→   508→            <p className="mt-0.5 text-[10px] text-muted-foreground">
+   509→   509→              <Clock className="inline h-2.5 w-2.5" /> {e.validFrom ? `from ${e.validFrom.slice(0, 10)}` : ""} {e.validUntil ? `until ${e.validUntil.slice(0, 10)}` : ""}
+   510→   510→            </p>
+   511→   511→          )}
+   512→   512→        </div>
+   513→   513→      ))}
+   514→   514→      <p className="pt-1 text-[10px] text-muted-foreground">Lineage: answer → claim → evidence → source.</p>
+   515→   515→    </div>
+   516→   516→  );
+   517→   517→}
+   518→   518→
+   519→   519→function ToolsList({ state }: { state: BrainStreamState }) {
+   520→   520→  if (state.tools.length === 0) return <EmptyHint icon={<Wrench className="h-4 w-4" />} text="No tools invoked. Try 'add 23 and 19' or 'send an email'." />;
+   521→   521→  return (
+   522→   522→    <div className="space-y-2">
+   523→   523→      {state.tools.map((t, i) => (
+   524→   524→        <ToolCard key={i} tool={t} />
+   525→   525→      ))}
+   526→   526→    </div>
+   527→   527→  );
+   528→   528→}
+   529→   529→
+   530→   530→function ToolCard({ tool }: { tool: ToolResult }) {
+   531→   531→  const [approving, setApproving] = React.useState(false);
+   532→   532→  const [current, setCurrent] = React.useState(tool);
+   533→   533→  React.useEffect(() => { setCurrent(tool); }, [tool]);
+   534→   534→  async function approve() {
+   535→   535→    setApproving(true);
+   536→   536→    try {
+   537→   537→      const r = await apiPost<{ result: ToolResult }>("/api/brain/tools/approve", { executionId: current.executionId, approver: "alice@acme.test" });
+   538→   538→      setCurrent(r.result);
+   539→   539→      toast.success(`Approved ${current.toolId} → ${r.result.state}`);
+   540→   540→    } catch (e: any) {
+   541→   541→      toast.error(e?.message ?? "approval failed");
+   542→   542→    } finally {
+   543→   543→      setApproving(false);
+   544→   544→    }
+   545→   545→  }
+   546→   546→  return (
+   547→   547→    <div className="rounded-lg border bg-card p-2.5">
+   548→   548→      <div className="mb-1 flex items-center justify-between gap-2">
+   549→   549→        <div className="flex items-center gap-1.5">
+   550→   550→          <Wrench className="h-3 w-3 text-[color:var(--color-cirkle-cyan)]" />
+   551→   551→          <span className="text-xs font-medium">{current.toolId}</span>
+   552→   552→        </div>
+   553→   553→        <Badge variant="outline" className={cn("text-[9px]", actionStateClass(current.state))}>{current.state}</Badge>
+   554→   554→      </div>
+   555→   555→      {current.output && (
+   556→   556→        <pre className="mt-1 max-h-32 overflow-auto rounded bg-muted/40 p-2 text-[10px] font-mono leading-tight">{JSON.stringify(current.output, null, 2)}</pre>
+   557→   557→      )}
+   558→   558→      {current.error && <p className="mt-1 text-[10px] text-rose-600">{current.error}</p>}
+   559→   559→      {current.requiresApproval && !current.approved && current.state === "AUTHORIZED" && (
+   560→   560→        <Button size="sm" className="mt-2 h-7 w-full text-xs" onClick={approve} disabled={approving}>
+   561→   561→          {approving ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <ShieldCheck className="mr-1 h-3 w-3" />}
+   562→   562→          Approve (human authorization)
+   563→   563→        </Button>
+   564→   564→      )}
+   565→   565→      <div className="mt-1 flex items-center justify-between text-[10px] text-muted-foreground">
+   566→   566→        <span>{current.durationMs}ms</span>
+   567→   567→        <span>governed execution</span>
+   568→   568→      </div>
+   569→   569→    </div>
+   570→   570→  );
+   571→   571→}
+   572→   572→
+   573→   573→function ResearchList({ state }: { state: BrainStreamState }) {
+   574→   574→  if (!state.research || state.research.resultsCount === 0) {
+   575→   575→    return <EmptyHint icon={<Globe className="h-4 w-4" />} text="No web research triggered for this request. The Brain only searches the web when local knowledge is insufficient." />;
+   576→   576→  }
+   577→   577→  return (
+   578→   578→    <div className="space-y-2">
+   579→   579→      <div className="rounded-lg border border-[color:var(--color-cirkle-cyan)]/30 bg-[color:var(--color-cirkle-cyan)]/5 p-2.5">
+   580→   580→        <p className="text-xs font-medium text-[color:var(--color-cirkle-cyan-deep)] dark:text-[color:var(--color-cirkle-glow)]">Web research triggered</p>
+   581→   581→        <p className="mt-0.5 text-[10px] text-muted-foreground">Query: "{state.research.query}"</p>
+   582→   582→        <p className="text-[10px] text-muted-foreground">{state.research.resultsCount} results · {state.research.ingestedCount} new facts ingested as knowledge</p>
+   583→   583→      </div>
+   584→   584→      <div className="space-y-1.5">
+   585→   585→        {state.research.sources.map((s, i) => (
+   586→   586→          <a key={i} href={s.url} target="_blank" rel="noreferrer" className="block rounded-lg border bg-card p-2 hover:bg-accent/50 transition-colors">
+   587→   587→            <div className="flex items-center gap-1.5">
+   588→   588→              <Globe className="h-3 w-3 shrink-0 text-[color:var(--color-cirkle-cyan)]" />
+   589→   589→              <span className="truncate text-xs font-medium">{s.title}</span>
+   590→   590→            </div>
+   591→   591→            <p className="mt-0.5 truncate text-[9px] text-muted-foreground">{s.url}</p>
+   592→   592→          </a>
+   593→   593→        ))}
+   594→   594→      </div>
+   595→   595→      <p className="pt-1 text-[10px] text-muted-foreground">Auto-learned: these web results are now stored as knowledge for future questions.</p>
+   596→   596→    </div>
+   597→   597→  );
+   598→   598→}
+   599→   599→
+   600→   600→function MemoryList({ state }: { state: BrainStreamState }) {
+   601→   601→  if (state.memory.length === 0) return <EmptyHint icon={<Database className="h-4 w-4" />} text="No memories recalled for this request." />;
+   602→   602→  return (
+   603→   603→    <div className="space-y-2">
+   604→   604→      {state.memory.map((m) => (
+   605→   605→        <div key={m.id} className="rounded-lg border bg-card p-2.5">
+   606→   606→          <div className="mb-1 flex items-center justify-between gap-2">
+   607→   607→            <Badge variant="outline" className="text-[9px]">{m.type}</Badge>
+   608→   608→            <Badge variant="outline" className="text-[9px]">{m.scope}</Badge>
+   609→   609→          </div>
+   610→   610→          <p className="text-xs leading-snug">{m.content}</p>
+   611→   611→        </div>
+   612→   612→      ))}
+   613→   613→    </div>
+   614→   614→  );
+   615→   615→}
+   616→   616→
+   617→   617→function EmptyHint({ icon, text }: { icon: React.ReactNode; text: string }) {
+   618→   618→  return (
+   619→   619→    <div className="flex flex-col items-center gap-2 py-10 text-center text-xs text-muted-foreground">
+   620→   620→      <div className="rounded-full border bg-muted/30 p-2">{icon}</div>
+   621→   621→      <p className="max-w-xs">{text}</p>
+   622→   622→    </div>
+   623→   623→  );
+   624→   624→}
+   625→   625→
+   626→   626→function verificationToneClass(s: EvidenceStatus) {
+   627→   627→  if (s === "VERIFIED" || s === "SUPPORTED") return "border-[color:var(--color-cirkle-cyan)]/30 bg-[color:var(--color-cirkle-cyan)]/10 text-[color:var(--color-cirkle-cyan-deep)] dark:text-[color:var(--color-cirkle-glow)]";
+   628→   628→  if (s === "INFERRED" || s === "UNCERTAIN" || s === "CONFLICTED") return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+   629→   629→  return "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300";
+   630→   630→}
+   631→   631→
+   632→   632→function actionStateClass(s: string) {
+   633→   633→  if (s === "VERIFIED" || s === "EXECUTED") return "border-[color:var(--color-cirkle-cyan)]/30 bg-[color:var(--color-cirkle-cyan)]/10 text-[color:var(--color-cirkle-cyan-deep)] dark:text-[color:var(--color-cirkle-glow)]";
+   634→   634→  if (s === "AUTHORIZED") return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+   635→   635→  if (s === "FAILED" || s === "TIMED_OUT" || s === "REJECTED") return "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300";
+   636→   636→  return "border-border bg-muted text-muted-foreground";
+   637→   637→}
+   638→   638→

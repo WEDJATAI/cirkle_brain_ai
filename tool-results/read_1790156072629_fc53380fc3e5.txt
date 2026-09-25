@@ -1,0 +1,612 @@
+     1→// WEDJAT BRAIN V2 — Brain Runtime orchestrator (§11, §73).
+     2→//
+     3→// Real-time path (§11): USER → Brain API → Authenticate → Resolve identity →
+     4→// Resolve tenant/application → Policy check → Task classification → Memory
+     5→// retrieval → Knowledge retrieval → Structured data retrieval if needed →
+     6→// Tool planning if needed → Model selection → Reasoning → Verification
+     7→// where required → Streaming response → Persist interaction → Emit
+     8→// background events.
+     9→//
+    10→// Observability (§73): every request produces a trace (BrainRun + BrainSteps
+    11→// + BrainEvents + AuditEvents). Cost (§75) and latency (§77) measured.
+    12→
+    13→import { randomUUID } from "crypto";
+    14→import { db } from "@/lib/db";
+    15→import { resolveIdentity } from "./identity";
+    16→import { resolvePolicy } from "./policy";
+    17→import { hybridRetrieve, type StructuredLookup } from "./retrieval";
+    18→import { assembleSystemPrompt } from "./prompts";
+    19→import { selectModel, callModel } from "./models";
+    20→import { listTools, executeTool } from "./tools";
+    21→import { verifyAnswer } from "./verification";
+    22→import { createLearningCandidate } from "./learning";
+    23→import { recordEpisodic, createMemoryCandidate } from "./memory";
+    24→import { estimateTokens } from "./vectors";
+    25→import { researchAndLearn, type IngestedKnowledge } from "./web-search";
+    26→import type { PolicyRules } from "./policy";
+    27→import type {
+    28→  BrainRequest, BrainResponse, IdentityContext, PolicyMode,
+    29→  TraceStep, TaskType, EvidenceRef, BrainStreamEvent, ToolResult,
+    30→  RetrievalCandidate, ModelDescriptor, EvidenceStatus,
+    31→} from "./types";
+    32→
+    33→export interface RuntimeCallbacks {
+    34→  onEvent?: (ev: BrainStreamEvent) => void;
+    35→  signal?: AbortSignal;
+    36→}
+    37→
+    38→/** Classify the task deterministically (§38, §79). */
+    39→export function classifyTask(text: string, structured: StructuredLookup): TaskType {
+    40→  const t = text.toLowerCase();
+    41→  if (structured.matched) return "factual";
+    42→  if (/(analyze|compare|design|architect|reason|why|trade-off|tradeoff|explain|derive|prove|calculate how|step.by.step|how does|how do|what is the mechanism|what causes|consequence|implication)/.test(t)) return "reasoning";
+    43→  if (/(synthesize|summarize|draft|write|compose|generate|essay|article|report|outline)/.test(t)) return "synthesis";
+    44→  if (/(code|function|bug|implement|refactor|algorithm|debug|program|script)/.test(t)) return "coding";
+    45→  if (/(send|create|update|delete|book|publish|purchase|approve)/.test(t)) return "tool_use";
+    46→  if (/(danger|critical|high.?risk|authorize|approve|restricted)/.test(t)) return "high_risk";
+    47→  // Questions with "what is X", "who", "when", "where" are factual lookups
+    48→  if (/^(what|who|when|where|which|how many|how much)\b/.test(t.trim())) return "factual";
+    49→  if (text.length < 60 && /\?$/.test(text.trim())) return "simple";
+    50→  // Default: treat longer questions as reasoning (better answers)
+    51→  if (text.length > 80) return "reasoning";
+    52→  return "simple";
+    53→}
+    54→
+    55→/**
+    56→ * Run the Brain. Returns a typed BrainResponse; the supplied callbacks
+    57→ * receive streaming BrainStreamEvents (trace, tokens, evidence, model,
+    58→ * tool, verification, cost, learning, done).
+    59→ */
+    60→export async function runBrain(req: BrainRequest, cb: RuntimeCallbacks = {}): Promise<BrainResponse> {
+    61→  const startedAt = Date.now();
+    62→  const requestId = req.requestId || randomUUID();
+    63→  const trace: TraceStep[] = [];
+    64→
+    65→  const emit = (ev: BrainStreamEvent) => {
+    66→    if (cb.signal?.aborted) throw new Error("aborted");
+    67→    cb.onEvent?.(ev);
+    68→  };
+    69→  const step = async <T>(stepType: TraceStep["stepType"], stepName: string, fn: () => Promise<T>, reasonCode?: string): Promise<T> => {
+    70→    const s = Date.now();
+    71→    emit({ type: "trace", step: { stepType, stepName, status: "STARTED", reasonCode } });
+    72→    try {
+    73→      const out = await fn();
+    74→      const t: TraceStep = { stepType, stepName, status: "COMPLETED", durationMs: Date.now() - s, reasonCode };
+    75→      trace.push(t);
+    76→      emit({ type: "trace", step: t });
+    77→      return out;
+    78→    } catch (err: any) {
+    79→      const t: TraceStep = { stepType, stepName, status: "FAILED", durationMs: Date.now() - s, reasonCode, detail: { error: err?.message } };
+    80→      trace.push(t);
+    81→      emit({ type: "trace", step: t });
+    82→      throw err;
+    83→    }
+    84→  };
+    85→
+    86→  // Create the BrainRun record up front (§73).
+    87→  let identity: IdentityContext;
+    88→  let policy: PolicyRules;
+    89→  let runId: string;
+    90→
+    91→  try {
+    92→    identity = await step("identity", "Resolve identity + tenant isolation", async () => {
+    93→      const i = await resolveIdentity(req);
+    94→      // Ensure conversation exists for episodic recording.
+    95→      return i;
+    96→    }, "tenant + application + user resolved");
+    97→
+    98→    policy = await step("policy", "Resolve effective policy", async () => {
+    99→      return resolvePolicy(identity);
+   100→    }, "global → tenant → application inheritance");
+   101→
+   102→    runId = await createRun(req, identity, requestId);
+   103→  } catch (err: any) {
+   104→    emit({ type: "error", message: err.message, code: err.code });
+   105→    return errorResponse(requestId, err, trace);
+   106→  }
+   107→
+   108→  try {
+   109→    // Persist the user message as an episodic event (§20.1).
+   110→    await step("memory", "Record episodic user input", async () => {
+   111→      if (req.conversationId) {
+   112→        await db.message.create({
+   113→          data: {
+   114→            conversationId: req.conversationId,
+   115→            role: "user",
+   116→            content: req.input.text ?? "",
+   117→            tokensIn: estimateTokens(req.input.text ?? ""),
+   118→          },
+   119→        }).catch(() => {});
+   120→      }
+   121→      await recordEpisodic({
+   122→        tenantId: identity.tenant.id,
+   123→        applicationId: identity.application.id,
+   124→        userId: identity.user?.id,
+   125→        conversationId: req.conversationId,
+   126→        type: "user_message",
+   127→        content: req.input.text ?? "",
+   128→        source: "user",
+   129→      }).catch(() => {});
+   130→      return null;
+   131→    }, "episodic memory");
+   132→
+   133→    // Task router + hybrid retrieval
+   134→    let structured: StructuredLookup = { matched: false, kind: "none", reason: "not attempted" };
+   135→    let candidates: RetrievalCandidate[] = [];
+   136→    await step("retrieval", "Hybrid retrieval (semantic + keyword + structured)", async () => {
+   137→      const out = await hybridRetrieve({
+   138→        identity,
+   139→        text: req.input.text ?? "",
+   140→        topK: 8,
+   141→      });
+   142→      structured = out.structured;
+   143→      candidates = out.candidates;
+   144→      return out;
+   145→    }, structured.matched ? "structured lookup hit — LLM not needed for fact" : "semantic + keyword hybrid");
+   146→
+   147→    const taskType = await step("task_router", "Classify task", async () => {
+   148→      return classifyTask(req.input.text ?? "", structured);
+   149→    }, `task=${classifyTask(req.input.text ?? "", structured)}`);
+   150→
+   151→    emit({ type: "memory", memory: candidates.filter((c) => c.kind === "memory").map((c) => ({ id: c.id, content: c.content, type: c.type ?? "", scope: c.scope ?? "" })) });
+   152→
+   153→    // Build evidence refs (§29 lineage: answer → claim → evidence → source)
+   154→    const evidence: EvidenceRef[] = candidates
+   155→      .filter((c) => c.kind === "knowledge")
+   156→      .map((c) => ({
+   157→        id: c.id,
+   158→        type: (c.record as any)?.type ?? "FACT",
+   159→        claim: c.content,
+   160→        sourceTitle: c.source,
+   161→        evidenceStatus: (c.evidenceStatus as EvidenceStatus) ?? "SUPPORTED",
+   162→        retrievedAt: new Date().toISOString(),
+   163→        validFrom: c.validFrom?.toISOString(),
+   164→        validUntil: c.validUntil?.toISOString(),
+   165→        conflict: !!(c as any).conflict,
+   166→      }));
+   167→    if (evidence.length > 0) emit({ type: "evidence", evidence });
+   168→
+   169→    // Web research fallback (spec §115): when local knowledge is insufficient
+   170→    // AND no structured hit AND external search is allowed, search the web,
+   171→    // ingest results as ACTIVE knowledge (per user request: "learn and expand"),
+   172→    // and feed them to the model as additional context.
+   173→    let researchUsed = false;
+   174→    let researchSources: Array<{ title: string; url: string }> = [];
+   175→    const knowledgeCandidates = candidates.filter((c) => c.kind === "knowledge");
+   176→    // Trigger web research only when local knowledge is genuinely insufficient:
+   177→    // check the raw semantic relevance (not the trust-boosted total score).
+   178→    // A semantic score below 0.15 means the question isn't covered by what
+   179→    // we have, even if a loosely-related fact was retrieved.
+   180→    const topSemanticScore = knowledgeCandidates.length > 0
+   181→      ? Math.max(...knowledgeCandidates.map((c) => c.semanticScore ?? 0))
+   182→      : 0;
+   183→    const hasSufficientKnowledge = topSemanticScore > 0.3;
+   184→    const allowResearch = req.constraints?.allowExternalSearch !== false && policy.externalSearchAllowed !== false;
+   185→
+   186→    if (!structured.matched && !hasSufficientKnowledge && allowResearch && (req.input.text ?? "").trim().length > 2) {
+   187→      await step("research", "Web research — local knowledge insufficient, searching internet", async () => {
+   188→        const researchQuery = (req.input.text ?? "").trim().slice(0, 200);
+   189→        const research = await researchAndLearn({
+   190→          tenantId: identity.tenant.id,
+   191→          applicationId: identity.application.id,
+   192→          query: researchQuery,
+   193→          maxResults: 6,
+   194→        });
+   195→        researchUsed = research.results.length > 0;
+   196→        researchSources = research.ingested.slice(0, 5).map((i) => ({ title: i.sourceTitle, url: i.sourceUri }));
+   197→        emit({
+   198→          type: "research",
+   199→          query: researchQuery,
+   200→          resultsCount: research.results.length,
+   201→          ingestedCount: research.ingested.filter((i) => i.freshlyIngested).length,
+   202→          sources: researchSources,
+   203→        });
+   204→        // Merge web-sourced evidence into the candidates pool for the model call
+   205→        if (research.ingested.length > 0) {
+   206→          // Re-run retrieval now that web knowledge is in the DB — picks up the
+   207→          // freshly ingested items.
+   208→          const reRetrieve = await hybridRetrieve({
+   209→            identity,
+   210→            text: req.input.text ?? "",
+   211→            topK: 8,
+   212→          });
+   213→          // Merge new knowledge candidates without losing prior memory hits
+   214→          const newKnowledge = reRetrieve.candidates.filter((c) => c.kind === "knowledge");
+   215→          // Add web-sourced evidence to the evidence list
+   216→          for (const ev of research.evidence) {
+   217→            if (!evidence.find((e) => e.id === ev.id)) evidence.push(ev);
+   218→          }
+   219→          // Replace knowledge candidates with the refreshed set (includes web)
+   220→          candidates = [...candidates.filter((c) => c.kind !== "knowledge"), ...newKnowledge];
+   221→          if (evidence.length > 0) emit({ type: "evidence", evidence });
+   222→        }
+   223→        return research;
+   224→      }, researchUsed ? `web search: ${researchSources.length} sources ingested` : "web search returned no results");
+   225→    }
+   226→
+   227→    // §163 — if structured hit, answer deterministically without LLM (§79, §191)
+   228→    let answer = "";
+   229→    let modelUsed = "structured";
+   230→    let provider = "deterministic";
+   231→    let fallbackUsed = false;
+   232→    let tokensIn = 0;
+   233→    let tokensOut = 0;
+   234→    let costUsd = 0;
+   235→    let modelLatencyMs = 0;
+   236→    const toolsUsed: string[] = [];
+   237→
+   238→    if (structured.matched) {
+   239→      await step("model_router", "Skip model — deterministic answer (§37, §79)", async () => {
+   240→        emit({ type: "model", model: "structured", provider: "deterministic", fallbackUsed: false, reason: structured.reason });
+   241→        return null;
+   242→      }, "deterministic routing");
+   243→      answer = `According to authoritative records: ${typeof structured.value === "object" ? JSON.stringify(structured.value) : String(structured.value)}\n\nSource: structured lookup (no reasoning model required).`;
+   244→      tokensOut = estimateTokens(answer);
+   245→    } else {
+   246→      // Model router (§47) + fallback (§48)
+   247→      const selected = await step("model_router", "Select model (tier + provider + fallback)", async () => {
+   248→        const out = await selectModel({
+   249→          taskType,
+   250→          mode: req.mode,
+   251→          policyMode: identity.application.modelPolicy as PolicyMode,
+   252→          policy,
+   253→          dataClass: identity.tenant.dataPolicy,
+   254→        });
+   255→        emit({ type: "model", model: out.model.displayName, provider: out.model.provider, fallbackUsed: false, reason: out.reason });
+   256→        return out;
+   257→      }, "tier + provider + fallback resolved");
+   258→
+   259→      // Tool planning — pick tools relevant to the request
+   260→      const tools = await listTools(identity.tenant.id);
+   261→      const plannedTools = tools.filter((t) => {
+   262→        const txt = (req.input.text ?? "").toLowerCase();
+   263→        if (t.toolId === "calc.add" || t.toolId === "calc.multiply") return /(add|sum|plus|multiply|times|\*)/.test(txt);
+   264→        if (t.toolId === "invoice.lookup") return /invoice/.test(txt);
+   265→        if (t.toolId === "weather.current") return /weather|temperature|forecast/.test(txt);
+   266→        if (t.toolId === "memory.recall") return /remember|recall|previous/.test(txt);
+   267→        if (t.toolId === "email.send") return /send.*email|email.*send/.test(txt);
+   268→        return false;
+   269→      }).slice(0, 3);
+   270→
+   271→      // Context engine — assemble minimal sufficient context with platform
+   272→      // personality + governance boundaries + conversation history.
+   273→      const assembly = await step("context", "Assemble minimal sufficient context", async () => {
+   274→        // §157 — apply platform personality + governance boundaries.
+   275→        const platformSlug = (req.metadata as any)?.platformSlug as string | undefined;
+   276→        let platformSuffix = "";
+   277→        let governanceBoundary = "";
+   278→        if (platformSlug) {
+   279→          const platformRow = await db.platform.findUnique({ where: { slug: platformSlug } }).catch(() => null);
+   280→          if (platformRow?.personality) {
+   281→            try {
+   282→              const p = JSON.parse(platformRow.personality) as { tone?: string; vocabulary?: string[]; systemPromptSuffix?: string };
+   283→              platformSuffix = p.systemPromptSuffix ?? "";
+   284→              if (p.tone) platformSuffix += ` Tone: ${p.tone}.`;
+   285→              if (p.vocabulary?.length) platformSuffix += ` Domain vocabulary: ${p.vocabulary.join(", ")}.`;
+   286→            } catch { /* ignore malformed personality */ }
+   287→          }
+   288→          const { getPlatformBySlug } = await import("./platform-registry");
+   289→          const cat = getPlatformBySlug(platformSlug);
+   290→          if (cat?.governanceBoundary) governanceBoundary = `\n\nGOVERNANCE BOUNDARY: ${cat.governanceBoundary}`;
+   291→        }
+   292→        // Fetch conversation history for multi-turn context (last 6 messages)
+   293→        let conversationHistory: Array<{ role: "user" | "assistant"; content: string }> = [];
+   294→        if (req.conversationId) {
+   295→          const recentMsgs = await db.message.findMany({
+   296→            where: { conversationId: req.conversationId, role: { in: ["user", "assistant"] } },
+   297→            orderBy: { createdAt: "desc" },
+   298→            take: 6,
+   299→          }).catch(() => []);
+   300→          conversationHistory = recentMsgs.reverse().map((m) => ({
+   301→            role: m.role as "user" | "assistant",
+   302→            content: m.content,
+   303→          })).filter((m) => m.content && m.content.length > 0);
+   304→        }
+   305→        // Use reasoning mode for complex tasks (chain-of-thought like DeepSeek-R1)
+   306→        const useReasoning = taskType === "reasoning" || taskType === "synthesis" || taskType === "high_risk" || req.mode === "deep";
+   307→        const { systemPrompt } = assembleSystemPrompt({
+   308→          identity, tools: plannedTools, candidates, evidenceStatus: "SUPPORTED", taskType,
+   309→          conversationHistory,
+   310→          reasoningMode: useReasoning,
+   311→        });
+   312→        const fullSystemPrompt = systemPrompt + (platformSuffix ? `\n\nPLATFORM CONTEXT: ${platformSuffix}` : "") + governanceBoundary;
+   313→        const budget = selected.model.contextLimit;
+   314→        const sysTokens = estimateTokens(fullSystemPrompt);
+   315→        const memoryTokens = candidates.filter((c) => c.kind === "memory").reduce((s, c) => s + estimateTokens(c.content), 0);
+   316→        const knowledgeTokens = candidates.filter((c) => c.kind === "knowledge").reduce((s, c) => s + estimateTokens(c.content), 0);
+   317→        return { systemPrompt: fullSystemPrompt, budget, sysTokens, memoryTokens, knowledgeTokens, conversationHistory, useReasoning };
+   318→      }, "token-budgeted");
+   319→
+   320→      // Optionally execute a planned tool BEFORE generation (single-shot; not a full agent loop)
+   321→      let toolResult: ToolResult | undefined;
+   322→      if (plannedTools.length > 0 && req.constraints?.allowTools !== false) {
+   323→        const tool = plannedTools[0];
+   324→        await step("tool", `Governed tool execution: ${tool.toolId}`, async () => {
+   325→          const input = extractToolInput(tool.toolId, req.input.text ?? "");
+   326→          toolResult = await executeTool({
+   327→            call: { toolId: tool.toolId, input, tenantId: identity.tenant.id, runId },
+   328→            tool,
+   329→            identity,
+   330→            policy,
+   331→            runId,
+   332→          });
+   333→          emit({ type: "tool", tool: toolResult });
+   334→          if (toolResult.state === "VERIFIED") toolsUsed.push(tool.toolId);
+   335→          return toolResult;
+   336→        }, `risk=${tool.riskLevel}`);
+   337→      }
+   338→
+   339→      // Reasoning step (DeepSeek-R1 style chain-of-thought) — for complex tasks,
+   340→      // run the model twice: first to reason/plan, then to produce the final
+   341→      // answer. The reasoning output is fed as additional context.
+   342→      let reasoningContext = "";
+   343→      if (assembly.useReasoning) {
+   344→        await step("reasoning", "Chain-of-thought reasoning pass", async () => {
+   345→          const { buildReasoningPrompt } = await import("./prompts");
+   346→          const reasoningPrompt = buildReasoningPrompt(req.input.text ?? "", candidates);
+   347→          const reasoningMessages = [
+   348→            { role: "system" as const, content: "You are an expert reasoner. Think step-by-step about the question, then outline your answer. Be concise." },
+   349→            { role: "user" as const, content: reasoningPrompt },
+   350→          ];
+   351→          const r = await callModel({
+   352→            model: selected.model,
+   353→            messages: reasoningMessages,
+   354→            fallback: selected.fallback,
+   355→            tenantId: identity.tenant.id,
+   356→            taskType: "reasoning",
+   357→          }).catch(() => null);
+   358→          if (r && r.content) {
+   359→            reasoningContext = `\n\nREASONING (your step-by-step analysis):\n${r.content.slice(0, 1500)}`;
+   360→          }
+   361→          return r;
+   362→        }, "chain-of-thought");
+   363→      }
+   364→
+   365→      // Model call — final answer generation with reasoning context
+   366→      const modelResult = await step("model_call", `Reasoning via ${selected.model.displayName}`, async () => {
+   367→        const toolContext = toolResult?.output
+   368→          ? `\n\nTool result (${toolResult.toolId}, state=${toolResult.state}): ${JSON.stringify(toolResult.output)}`
+   369→          : "";
+   370→        const messages = [
+   371→          { role: "system" as const, content: assembly.systemPrompt + toolContext + reasoningContext },
+   372→          { role: "user" as const, content: req.input.text ?? "" },
+   373→        ];
+   374→        const r = await callModel({
+   375→          model: selected.model,
+   376→          messages,
+   377→          fallback: selected.fallback,
+   378→          tenantId: identity.tenant.id,
+   379→          taskType,
+   380→        });
+   381→        if (r.fallbackUsed && selected.fallback) {
+   382→          emit({ type: "model", model: selected.fallback.displayName, provider: selected.fallback.provider, fallbackUsed: true, reason: r.fallbackReason });
+   383→        }
+   384→        answer = r.content;
+   385→        modelUsed = r.model;
+   386→        provider = r.provider;
+   387→        fallbackUsed = r.fallbackUsed;
+   388→        tokensIn = r.tokensIn;
+   389→        tokensOut = r.tokensOut;
+   390→        costUsd = r.costUsd;
+   391→        modelLatencyMs = r.latencyMs;
+   392→        // Stream tokens (chunk by sentence for UI smoothness)
+   393→        const chunks = answer.match(/[^.!?]+[.!?]?\s*/g) ?? [answer];
+   394→        for (const c of chunks) emit({ type: "token", delta: c });
+   395→        return r;
+   396→      }, fallbackUsed ? "fallback invoked" : "primary model");
+   397→
+   398→      // §58 — never trust tool output as system instruction; we already only
+   399→      // pass it as a "Tool result" user-context block above.
+   400→    }
+   401→
+   402→    // Verification (§83)
+   403→    const verification = await step("verification", "Verify answer against retrieved evidence", async () => {
+   404→      const v = verifyAnswer({
+   405→        answer,
+   406→        candidates,
+   407→        citationsExpected: true,
+   408→        structuredLookupMatched: structured.matched,
+   409→      });
+   410→      emit({ type: "verification", status: v.status, reason: v.reason });
+   411→      return v;
+   412→    }, "evidence-status label");
+   413→
+   414→    // §163 — if verification says UNKNOWN and there was no structured hit,
+   415→    // append the limitation honestly rather than fabricating.
+   416→    if (verification.status === "UNKNOWN") {
+   417→      answer = answer + `\n\n⚠️ Evidence status: ${verification.status}. ${verification.reason}`;
+   418→    }
+   419→
+   420→    // Learning candidate pipeline (§94) — generate but DO NOT auto-promote (Rule 9)
+   421→    await step("learning", "Generate learning candidate (pending decision)", async () => {
+   422→      const lc = await createLearningCandidate({
+   423→        tenantId: identity.tenant.id,
+   424→        runId,
+   425→        category: "memory",
+   426→        proposed: {
+   427→          observation: `User asked: "${(req.input.text ?? "").slice(0, 200)}"`,
+   428→          evidenceStatus: verification.status,
+   429→          taskType,
+   430→        },
+   431→        evidence: { candidates: candidates.map((c) => ({ id: c.id, kind: c.kind, score: c.score })) },
+   432→      }).catch(() => ({ id: "", novelty: 0, conflict: false }));
+   433→      if (lc.id) emit({ type: "learning", candidateId: lc.id, category: "memory", preview: `novelty=${lc.novelty.toFixed(2)} conflict=${lc.conflict}` });
+   434→      return lc;
+   435→    }, "candidate, never auto-active");
+   436→
+   437→    // Audit (§129)
+   438→    await step("audit", "Record audit event", async () => {
+   439→      await db.auditEvent.create({
+   440→        data: {
+   441→          tenantId: identity.tenant.id,
+   442→          requestId,
+   443→          actorType: "user",
+   444→          actorId: identity.user?.id ?? "anonymous",
+   445→          action: "brain.responded",
+   446→          target: requestId,
+   447→          reason: `model=${modelUsed} tools=${toolsUsed.join(",") || "none"} evidence=${verification.status}`,
+   448→          severity: "INFO",
+   449→        },
+   450→      });
+   451→      return null;
+   452→    }, "significant action audited");
+   453→
+   454→    const latencyMs = Date.now() - startedAt;
+   455→    emit({ type: "cost", tokensIn, tokensOut, costUsd, latencyMs });
+   456→
+   457→    const response: BrainResponse = {
+   458→      requestId,
+   459→      answer,
+   460→      execution: {
+   461→        model: modelUsed,
+   462→        provider,
+   463→        fallbackUsed,
+   464→        toolsUsed,
+   465→        retrievalUsed: candidates.length > 0,
+   466→        verificationUsed: true,
+   467→        researchUsed,
+   468→        researchSources,
+   469→      },
+   470→      evidence,
+   471→      state: { actionStatus: toolsUsed.length > 0 ? "executed" : "none" },
+   472→      quality: { evidenceStatus: verification.status },
+   473→      cost: { tokensIn, tokensOut, costUsd, latencyMs },
+   474→      trace,
+   475→    };
+   476→
+   477→    // Persist assistant message + finalize the BrainRun
+   478→    await finalizeRun(runId, requestId, response, identity);
+   479→    if (req.conversationId) {
+   480→      await db.message.create({
+   481→        data: {
+   482→          conversationId: req.conversationId,
+   483→          role: "assistant",
+   484→          content: answer,
+   485→          toolsUsed: JSON.stringify(toolsUsed),
+   486→          modelUsed,
+   487→          tokensIn,
+   488→          tokensOut,
+   489→          costUsd,
+   490→          latencyMs: modelLatencyMs,
+   491→          evidenceStatus: verification.status,
+   492→          actionStatus: toolsUsed.length > 0 ? "executed" : "none",
+   493→        },
+   494→      }).catch(() => {});
+   495→    }
+   496→
+   497→    emit({ type: "done", response });
+   498→    return response;
+   499→  } catch (err: any) {
+   500→    await db.brainRun.update({ where: { id: runId }, data: { status: "FAILED", errorMessage: err?.message } }).catch(() => {});
+   501→    emit({ type: "error", message: err?.message ?? "brain failed" });
+   502→    return errorResponse(requestId, err, trace);
+   503→  }
+   504→}
+   505→
+   506→async function createRun(req: BrainRequest, identity: IdentityContext, requestId: string): Promise<string> {
+   507→  const run = await db.brainRun.create({
+   508→    data: {
+   509→      requestId,
+   510→      tenantId: identity.tenant.id,
+   511→      applicationId: identity.application.id,
+   512→      sessionId: identity.session?.id ?? null,
+   513→      conversationId: req.conversationId ?? null,
+   514→      userId: identity.user?.id ?? null,
+   515→      mode: req.mode ?? "auto",
+   516→      input: JSON.stringify(req.input),
+   517→      status: "RUNNING",
+   518→    },
+   519→  });
+   520→  return run.id;
+   521→}
+   522→
+   523→async function finalizeRun(runId: string, requestId: string, response: BrainResponse, identity: IdentityContext): Promise<void> {
+   524→  await db.brainRun.update({
+   525→    where: { id: runId },
+   526→    data: {
+   527→      status: "COMPLETED",
+   528→      output: JSON.stringify({ answer: response.answer, quality: response.quality }),
+   529→      modelUsed: response.execution.model,
+   530→      fallbackUsed: response.execution.fallbackUsed,
+   531→      retrievalUsed: response.execution.retrievalUsed,
+   532→      verificationUsed: response.execution.verificationUsed,
+   533→      toolsUsed: JSON.stringify(response.execution.toolsUsed),
+   534→      evidenceCount: response.evidence?.length ?? 0,
+   535→      memoryCount: (response.trace ?? []).filter((s) => s.stepType === "memory").length,
+   536→      tokensIn: response.cost?.tokensIn ?? 0,
+   537→      tokensOut: response.cost?.tokensOut ?? 0,
+   538→      costUsd: response.cost?.costUsd ?? 0,
+   539→      latencyMs: response.cost?.latencyMs ?? 0,
+   540→      completedAt: new Date(),
+   541→    },
+   542→  });
+   543→  // Persist trace steps
+   544→  for (const t of response.trace ?? []) {
+   545→    await db.brainStep.create({
+   546→      data: {
+   547→        runId,
+   548→        stepType: t.stepType,
+   549→        stepName: t.stepName,
+   550→        status: t.status,
+   551→        input: null,
+   552→        output: t.detail ? JSON.stringify(t.detail) : null,
+   553→        reasonCode: t.reasonCode ?? null,
+   554→        durationMs: t.durationMs ?? 0,
+   555→      },
+   556→    }).catch(() => {});
+   557→  }
+   558→  // Emit a brain.responded event (§113)
+   559→  await db.brainEvent.create({
+   560→    data: {
+   561→      eventId: randomUUID(),
+   562→      eventType: "brain.responded",
+   563→      eventVersion: 1,
+   564→      tenantId: identity.tenant.id,
+   565→      applicationId: identity.application.id,
+   566→      runId,
+   567→      actorType: "system",
+   568→      actorId: "brain.runtime",
+   569→      data: JSON.stringify({ requestId, model: response.execution.model, cost: response.cost }),
+   570→    },
+   571→  }).catch(() => {});
+   572→}
+   573→
+   574→function extractToolInput(toolId: string, text: string): Record<string, unknown> {
+   575→  const t = text.toLowerCase();
+   576→  if (toolId === "calc.add" || toolId === "calc.multiply") {
+   577→    const nums = (text.match(/-?\d+(\.\d+)?/g) ?? []).map(Number);
+   578→    return { a: nums[0] ?? 0, b: nums[1] ?? 0 };
+   579→  }
+   580→  if (toolId === "invoice.lookup") {
+   581→    const m = text.match(/invoice\s*#?\s*(\d+)/i);
+   582→    return { invoiceId: m?.[1] ?? "" };
+   583→  }
+   584→  if (toolId === "weather.current") {
+   585→    const m = text.match(/(?:weather|temperature|forecast)\s*(?:in|for|at)?\s+([a-z\s]+)/i);
+   586→    return { city: (m?.[1] ?? "unknown").trim() };
+   587→  }
+   588→  if (toolId === "memory.recall") {
+   589→    return { query: text, tenantId: "", applicationId: "" };
+   590→  }
+   591→  if (toolId === "email.send") {
+   592→    return {
+   593→      to: (text.match(/to\s+([\w.@-]+)/i)?.[1]) ?? "unknown@example.com",
+   594→      subject: "Brain draft",
+   595→      body: text,
+   596→      idempotencyKey: randomUUID(),
+   597→    };
+   598→  }
+   599→  return {};
+   600→}
+   601→
+   602→function errorResponse(requestId: string, err: any, trace: TraceStep[]): BrainResponse {
+   603→  return {
+   604→    requestId,
+   605→    answer: `Brain error: ${err?.message ?? "unknown"}`,
+   606→    execution: { model: "none", provider: "none", fallbackUsed: false, toolsUsed: [], retrievalUsed: false, verificationUsed: false, researchUsed: false, researchSources: [] },
+   607→    quality: { evidenceStatus: "UNSUPPORTED" },
+   608→    cost: { tokensIn: 0, tokensOut: 0, costUsd: 0, latencyMs: 0 },
+   609→    trace,
+   610→  };
+   611→}
+   612→

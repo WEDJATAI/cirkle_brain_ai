@@ -1,0 +1,2002 @@
+     1→# WEDJAT AI — BRAIN V2
+     2→
+     3→## MASTER CTO / AI ARCHITECTURE / ENGINEERING / LEARNING / SECURITY / PRODUCTION IMPLEMENTATION PROMPT
+     4→
+     5→---
+     6→
+     7→# 0. MANDATORY INSTRUCTION
+     8→
+     9→You are not being asked to build another chatbot.
+    10→
+    11→You are being asked to build **WEDJAT AI as a serious model-independent cognitive platform / Platform Brain** that can serve multiple products, applications, organizations, workflows, and future systems.
+    12→
+    13→The objective is not:
+    14→
+    15→```text
+    16→LLM + prompt + vector database
+    17→```
+    18→
+    19→The objective is:
+    20→
+    21→```text
+    22→WEDJAT BRAIN
+    23→=
+    24→Identity
+    25→+
+    26→Memory
+    27→+
+    28→Knowledge
+    29→+
+    30→Evidence
+    31→+
+    32→Retrieval
+    33→+
+    34→Context
+    35→+
+    36→Task Routing
+    37→+
+    38→Reasoning
+    39→+
+    40→Tools
+    41→+
+    42→Policies
+    43→+
+    44→Authorization
+    45→+
+    46→Verification
+    47→+
+    48→Learning
+    49→+
+    50→Evaluation
+    51→+
+    52→Feedback
+    53→+
+    54→Provenance
+    55→+
+    56→Observability
+    57→+
+    58→Cost Control
+    59→+
+    60→Auditability
+    61→```
+    62→
+    63→The underlying LLM is only one replaceable reasoning component.
+    64→
+    65→Do not confuse:
+    66→
+    67→```text
+    68→model
+    69→```
+    70→
+    71→with:
+    72→
+    73→```text
+    74→brain
+    75→```
+    76→
+    77→The model can change while the Brain remains.
+    78→
+    79→---
+    80→
+    81→# 1. THIS DOCUMENT SUPERSEDES THE PREVIOUS BRAIN DOCUMENTS
+    82→
+    83→Use this document as the current governing specification for Wedjat AI Brain architecture.
+    84→
+    85→It incorporates and replaces the weaknesses identified in previous Platform Brain and Master Prompt documents.
+    86→
+    87→The previous documents remain useful as historical design context, but they must not override this specification where they conflict with it.
+    88→
+    89→The purpose of this version is to convert broad architectural philosophy into an **actual executable engineering program**.
+    90→
+    91→This specification has five levels:
+    92→
+    93→```text
+    94→LEVEL 0
+    95→Brain Constitution
+    96→
+    97→LEVEL 1
+    98→Production Core
+    99→
+   100→LEVEL 2
+   101→Scale / Advanced Intelligence
+   102→
+   103→LEVEL 3
+   104→Advanced / Research Capabilities
+   105→
+   106→LEVEL 4
+   107→Experimental Capabilities
+   108→```
+   109→
+   110→Do not implement Level 3 or Level 4 merely because they are listed.
+   111→
+   112→Do not over-engineer Level 1.
+   113→
+   114→The system must earn complexity through measurable requirements.
+   115→
+   116→---
+   117→
+   118→# 2. THE MOST IMPORTANT PRINCIPLE
+   119→
+   120→## THE MODEL IS NOT THE BRAIN.
+   121→
+   122→The Brain is the complete system around the model.
+   123→
+   124→The model is responsible for tasks such as:
+   125→
+   126→* language generation
+   127→* reasoning
+   128→* interpretation
+   129→* planning
+   130→* classification
+   131→* extraction
+   132→* tool selection
+   133→* multimodal interpretation
+   134→
+   135→The Brain is responsible for:
+   136→
+   137→* identity
+   138→* authorization
+   139→* memory
+   140→* knowledge
+   141→* evidence
+   142→* retrieval
+   143→* provenance
+   144→* context construction
+   145→* policy
+   146→* tool governance
+   147→* model selection
+   148→* verification
+   149→* state
+   150→* learning
+   151→* evaluation
+   152→* feedback
+   153→* auditing
+   154→* reliability
+   155→* cost control
+   156→
+   157→The model must never be the final authority for authorization, truth, system policy, tenant access, or external side effects.
+   158→
+   159→---
+   160→
+   161→# 3. DESIGN PHILOSOPHY
+   162→
+   163→Build:
+   164→
+   165→```text
+   166→A cognitive operating layer
+   167→```
+   168→
+   169→not:
+   170→
+   171→```text
+   172→A larger prompt
+   173→```
+   174→
+   175→not:
+   176→
+   177→```text
+   178→A RAG chatbot
+   179→```
+   180→
+   181→not:
+   182→
+   183→```text
+   184→A multi-agent demo
+   185→```
+   186→
+   187→not:
+   188→
+   189→```text
+   190→A vector database with an LLM
+   191→```
+   192→
+   193→not:
+   194→
+   195→```text
+   196→A fake continuously self-training model
+   197→```
+   198→
+   199→---
+   200→
+   201→# 4. WEDJAT BRAIN CONSTITUTION
+   202→
+   203→The following rules are mandatory and override convenience.
+   204→
+   205→## Rule 1 — No false intelligence claims
+   206→
+   207→Do not claim that Wedjat trained its underlying model when the system merely:
+   208→
+   209→* stored memory
+   210→* added documents
+   211→* updated prompts
+   212→* changed retrieval
+   213→* changed routing
+   214→* changed tool policies
+   215→
+   216→Use accurate terminology.
+   217→
+   218→---
+   219→
+   220→## Rule 2 — Model output is not automatically truth
+   221→
+   222→Never automatically convert:
+   223→
+   224→```text
+   225→LLM output
+   226→```
+   227→
+   228→into:
+   229→
+   230→```text
+   231→verified knowledge
+   232→```
+   233→
+   234→unless independent evidence or an explicit validated workflow justifies doing so.
+   235→
+   236→---
+   237→
+   238→## Rule 3 — Authorization is outside the model
+   239→
+   240→The model may request an action.
+   241→
+   242→The policy/authorization layer decides whether that action is permitted.
+   243→
+   244→---
+   245→
+   246→## Rule 4 — Retrieved content is untrusted
+   247→
+   248→Documents, websites, emails, tool results, user-provided text, and external data may contain malicious instructions.
+   249→
+   250→They must never be treated as system-level instructions.
+   251→
+   252→---
+   253→
+   254→## Rule 5 — Tenant isolation is mandatory
+   255→
+   256→The Brain must never leak:
+   257→
+   258→* memories
+   259→* documents
+   260→* knowledge
+   261→* conversation information
+   262→* tools
+   263→* data
+   264→* credentials
+   265→* hidden metadata
+   266→
+   267→between unauthorized tenants, users, applications, or organizations.
+   268→
+   269→---
+   270→
+   271→## Rule 6 — Side effects require explicit authorization
+   272→
+   273→A model recommendation is not execution.
+   274→
+   275→Distinguish:
+   276→
+   277→```text
+   278→recommendation
+   279→draft
+   280→simulation
+   281→requested action
+   282→authorized action
+   283→executed action
+   284→verified result
+   285→```
+   286→
+   287→---
+   288→
+   289→## Rule 7 — Important knowledge has provenance
+   290→
+   291→The Brain must be able to determine:
+   292→
+   293→```text
+   294→where did this information come from?
+   295→when was it obtained?
+   296→what evidence supports it?
+   297→what version was used?
+   298→is it still valid?
+   299→does conflicting evidence exist?
+   300→```
+   301→
+   302→---
+   303→
+   304→## Rule 8 — Knowledge is temporal
+   305→
+   306→The Brain must distinguish:
+   307→
+   308→```text
+   309→current
+   310→historical
+   311→future/scheduled
+   312→expired
+   313→unknown
+   314→conflicted
+   315→```
+   316→
+   317→---
+   318→
+   319→## Rule 9 — Learning is controlled
+   320→
+   321→Production activity may generate:
+   322→
+   323→```text
+   324→learning candidates
+   325→```
+   326→
+   327→It must not silently modify trusted knowledge, prompts, policies, or model behavior.
+   328→
+   329→---
+   330→
+   331→## Rule 10 — Simplicity wins unless complexity is justified
+   332→
+   333→Do not introduce:
+   334→
+   335→* another database
+   336→* another vector database
+   337→* another queue
+   338→* another gateway
+   339→* another microservice
+   340→* another cache
+   341→* another orchestration system
+   342→
+   343→without a measurable reason.
+   344→
+   345→---
+   346→
+   347→## Rule 11 — Logical modularity does not require microservices
+   348→
+   349→Implement strong boundaries in code first.
+   350→
+   351→Create physically independent services only when justified by:
+   352→
+   353→* scale
+   354→* security
+   355→* deployment independence
+   356→* reliability
+   357→* performance
+   358→* organizational ownership
+   359→
+   360→---
+   361→
+   362→## Rule 12 — Every capability must be testable
+   363→
+   364→Nothing is “done” because code exists.
+   365→
+   366→A capability is done only when:
+   367→
+   368→```text
+   369→implemented
+   370→+
+   371→tested
+   372→+
+   373→secured
+   374→+
+   375→observable
+   376→+
+   377→documented
+   378→+
+   379→deployed
+   380→+
+   381→verified
+   382→```
+   383→
+   384→---
+   385→
+   386→# 5. CURRENT PLATFORM-FIRST RULE
+   387→
+   388→Before modifying the platform, inspect the existing implementation.
+   389→
+   390→Do not assume the repository is empty.
+   391→
+   392→Do not assume any previous architecture was fully implemented.
+   393→
+   394→Do not replace functioning code merely because a cleaner architecture exists.
+   395→
+   396→Do not duplicate functionality.
+   397→
+   398→Do not create competing:
+   399→
+   400→* AI clients
+   401→* model routers
+   402→* memory services
+   403→* vector stores
+   404→* API routes
+   405→* event systems
+   406→* database schemas
+   407→* environment variables
+   408→* caches
+   409→* authentication systems
+   410→
+   411→unless there is a documented reason.
+   412→
+   413→---
+   414→
+   415→# 6. MANDATORY PRE-BUILD AUDIT
+   416→
+   417→Before writing significant code, inspect:
+   418→
+   419→## Application
+   420→
+   421→* framework
+   422→* Next.js version
+   423→* React version
+   424→* TypeScript
+   425→* package manager
+   426→* build configuration
+   427→* runtime configuration
+   428→* server/client boundaries
+   429→* middleware
+   430→* API routes
+   431→* server actions
+   432→* existing AI SDK usage
+   433→
+   434→## AI
+   435→
+   436→* current providers
+   437→* current models
+   438→* model abstractions
+   439→* embeddings
+   440→* RAG
+   441→* memory
+   442→* agents
+   443→* tools
+   444→* prompt files
+   445→* AI routes
+   446→* streaming
+   447→* structured output
+   448→* retries
+   449→* fallbacks
+   450→
+   451→## Data
+   452→
+   453→* Neon
+   454→* Turso
+   455→* schemas
+   456→* migrations
+   457→* indexes
+   458→* vector columns
+   459→* search
+   460→* existing documents
+   461→* existing chat history
+   462→* existing user data
+   463→* current caching
+   464→
+   465→## Workflow
+   466→
+   467→* Inngest
+   468→* background jobs
+   469→* queues
+   470→* cron
+   471→* event schemas
+   472→* retry strategy
+   473→* existing workflows
+   474→
+   475→## Security
+   476→
+   477→* authentication
+   478→* session handling
+   479→* authorization
+   480→* tenant isolation
+   481→* secrets
+   482→* environment variables
+   483→* API exposure
+   484→* rate limiting
+   485→* logging
+   486→* audit
+   487→
+   488→## Deployment
+   489→
+   490→* GitHub
+   491→* CI/CD
+   492→* Vercel
+   493→* preview environments
+   494→* production environments
+   495→* environment separation
+   496→
+   497→## Quality
+   498→
+   499→* unit tests
+   500→* integration tests
+   501→* E2E tests
+   502→* linting
+   503→* type checking
+   504→* build
+   505→* deployment checks
+   506→* observability
+   507→
+   508→---
+   509→
+   510→# 7. AUDIT DELIVERABLE
+   511→
+   512→Before implementation, produce:
+   513→
+   514→```text
+   515→CURRENT STATE
+   516→TARGET STATE
+   517→GAPS
+   518→DUPLICATES
+   519→RISKS
+   520→DEPENDENCIES
+   521→MIGRATION REQUIREMENTS
+   522→RECOMMENDED ORDER
+   523→```
+   524→
+   525→Also classify every planned capability:
+   526→
+   527→```text
+   528→EXISTS
+   529→PARTIAL
+   530→BROKEN
+   531→MISSING
+   532→OBSOLETE
+   533→```
+   534→
+   535→Do not invent implementation status.
+   536→
+   537→---
+   538→
+   539→# 8. PRIORITY SYSTEM
+   540→
+   541→Every requirement must receive a priority.
+   542→
+   543→## P0 — Constitutional
+   544→
+   545→Must always exist.
+   546→
+   547→Examples:
+   548→
+   549→* tenant isolation
+   550→* authorization
+   551→* policy enforcement
+   552→* secret protection
+   553→* provenance for trusted knowledge
+   554→* audit of significant actions
+   555→* no automatic hallucination promotion
+   556→* deterministic validation
+   557→* safe tool execution
+   558→
+   559→## P1 — Production Core
+   560→
+   561→Required for a production Brain.
+   562→
+   563→Examples:
+   564→
+   565→* Brain API
+   566→* Brain Runtime
+   567→* model abstraction
+   568→* model router
+   569→* memory
+   570→* knowledge
+   571→* retrieval
+   572→* context engine
+   573→* tool engine
+   574→* observability
+   575→* evaluation baseline
+   576→* cost tracking
+   577→* failure handling
+   578→
+   579→## P2 — Scale / Optimization
+   580→
+   581→Add when justified.
+   582→
+   583→Examples:
+   584→
+   585→* advanced reranking
+   586→* edge retrieval
+   587→* Turso local replicas
+   588→* advanced routing
+   589→* complex cache layers
+   590→* graph optimization
+   591→* large-scale evaluation
+   592→* advanced cost optimization
+   593→
+   594→## P3 — Advanced Intelligence
+   595→
+   596→Examples:
+   597→
+   598→* local models
+   599→* sophisticated agent networks
+   600→* fine-tuning
+   601→* specialized models
+   602→* predictive systems
+   603→* multimodal knowledge graphs
+   604→
+   605→## P4 — Experimental
+   606→
+   607→Research features only.
+   608→
+   609→Do not allow experimental functionality to contaminate production architecture.
+   610→
+   611→---
+   612→
+   613→# 9. TARGET HIGH-LEVEL ARCHITECTURE
+   614→
+   615→Build toward:
+   616→
+   617→```text
+   618→                          WEDJAT AI
+   619→                              │
+   620→                       ┌──────▼──────┐
+   621→                       │  BRAIN API  │
+   622→                       └──────┬──────┘
+   623→                              │
+   624→                    ┌─────────▼─────────┐
+   625→                    │   BRAIN RUNTIME   │
+   626→                    └─────────┬─────────┘
+   627→                              │
+   628→       ┌──────────────┬───────┼────────┬───────────────┐
+   629→       ▼              ▼       ▼        ▼               ▼
+   630→   Identity        Policy   Memory  Knowledge      Task Router
+   631→                              │        │               │
+   632→                              └────┬───┘               │
+   633→                                   ▼                   │
+   634→                             Context Engine            │
+   635→                                   │                   │
+   636→                             Retrieval Engine          │
+   637→                                   │                   │
+   638→                      ┌────────────┼────────────┐      │
+   639→                      ▼            ▼            ▼      │
+   640→                   Semantic     Keyword      SQL/Data  │
+   641→                      │            │            │       │
+   642→                      └────────────┼────────────┘       │
+   643→                                   ▼                    │
+   644→                                Reranker                │
+   645→                                   │                    │
+   646→                                   └────────┬───────────┘
+   647→                                            ▼
+   648→                                      Model Router
+   649→                                            │
+   650→                           ┌────────────────┼────────────────┐
+   651→                           ▼                ▼                ▼
+   652→                       Fast Model      Reasoning Model   Specialist Model
+   653→                           │                │                │
+   654→                           └────────────────┼────────────────┘
+   655→                                            ▼
+   656→                                      Tool / Action
+   657→                                            │
+   658→                                         Policy
+   659→                                            │
+   660→                                  Human approval if needed
+   661→                                            │
+   662→                                         Execute
+   663→                                            │
+   664→                                        Verify
+   665→                                            │
+   666→                                        Respond
+   667→                                            │
+   668→                    ┌───────────────────────┴───────────────────────┐
+   669→                    ▼                                               ▼
+   670→                 USER                                           EVENTS
+   671→                                                                    │
+   672→                                                                  Inngest
+   673→                                                                    │
+   674→                       ┌────────────────────────────────────────────┼────────┐
+   675→                       ▼                                            ▼        ▼
+   676→                    Learning                                    Evaluation Refresh
+   677→                       │                                            │        │
+   678→                       └────────────────────────────────────────────┴────────┘
+   679→                                                                    │
+   680→                                                                    ▼
+   681→                                                                   Neon
+   682→```
+   683→
+   684→Turso is an optional secondary/local capability, not automatically a second canonical brain.
+   685→
+   686→---
+   687→
+   688→# 10. INFRASTRUCTURE RESPONSIBILITIES
+   689→
+   690→Use the current project stack intelligently.
+   691→
+   692→## GitHub
+   693→
+   694→Source of truth for:
+   695→
+   696→* application code
+   697→* Brain code
+   698→* migrations
+   699→* prompts
+   700→* policies
+   701→* schemas
+   702→* tools
+   703→* evaluation datasets
+   704→* tests
+   705→* documentation
+   706→* architecture decisions
+   707→* CI/CD
+   708→
+   709→---
+   710→
+   711→## Vercel + Next.js
+   712→
+   713→Use primarily for:
+   714→
+   715→* application UI
+   716→* synchronous API path
+   717→* streaming responses
+   718→* real-time interactions
+   719→* lightweight server execution
+   720→* Brain API entry point
+   721→* authentication-facing workflows
+   722→
+   723→Do not force every request through a durable background workflow.
+   724→
+   725→---
+   726→
+   727→## Neon
+   728→
+   729→Use as the principal canonical persistent data layer for the Brain:
+   730→
+   731→* relational data
+   732→* users
+   733→* tenants
+   734→* memory
+   735→* knowledge
+   736→* provenance
+   737→* embeddings
+   738→* evaluations
+   739→* audit
+   740→* model metadata
+   741→* tool metadata
+   742→* learning records
+   743→
+   744→Use PostgreSQL features rather than inventing application-level replacements.
+   745→
+   746→Use pgvector for semantic retrieval where appropriate.
+   747→
+   748→---
+   749→
+   750→## Inngest
+   751→
+   752→Use for:
+   753→
+   754→* durable background processing
+   755→* document ingestion
+   756→* embedding generation
+   757→* knowledge extraction
+   758→* knowledge validation
+   759→* memory consolidation
+   760→* scheduled refresh
+   761→* evaluations
+   762→* long-running research
+   763→* human approval waits
+   764→* retryable external operations
+   765→* asynchronous learning
+   766→
+   767→Interactive chat should not automatically become an Inngest workflow simply because Inngest exists.
+   768→
+   769→---
+   770→
+   771→## Model Gateway
+   772→
+   773→Use one primary model-access abstraction.
+   774→
+   775→A current provider gateway may be used underneath it.
+   776→
+   777→The application must still maintain its own provider abstraction.
+   778→
+   779→Do not hard-code every product to one vendor API.
+   780→
+   781→---
+   782→
+   783→## Turso
+   784→
+   785→Use only where actual requirements justify it:
+   786→
+   787→* local inference
+   788→* embedded data
+   789→* offline operation
+   790→* mobile/device-local retrieval
+   791→* edge caching
+   792→* regional/local vector access
+   793→
+   794→Do not maintain duplicate canonical memory simply because Turso supports vectors.
+   795→
+   796→---
+   797→
+   798→# 11. THE REAL-TIME PATH
+   799→
+   800→Default interactive flow:
+   801→
+   802→```text
+   803→USER
+   804→ ↓
+   805→Brain API
+   806→ ↓
+   807→Authenticate
+   808→ ↓
+   809→Resolve identity
+   810→ ↓
+   811→Resolve tenant/application
+   812→ ↓
+   813→Policy check
+   814→ ↓
+   815→Task classification
+   816→ ↓
+   817→Memory retrieval
+   818→ ↓
+   819→Knowledge retrieval
+   820→ ↓
+   821→Structured data retrieval if needed
+   822→ ↓
+   823→Tool planning if needed
+   824→ ↓
+   825→Model selection
+   826→ ↓
+   827→Reasoning
+   828→ ↓
+   829→Verification where required
+   830→ ↓
+   831→Streaming response
+   832→ ↓
+   833→Persist interaction
+   834→ ↓
+   835→Emit background events
+   836→```
+   837→
+   838→Do not perform expensive nonessential learning inline.
+   839→
+   840→---
+   841→
+   842→# 12. BACKGROUND PATH
+   843→
+   844→```text
+   845→EVENT
+   846→ ↓
+   847→Inngest
+   848→ ↓
+   849→durable step
+   850→ ↓
+   851→process
+   852→ ↓
+   853→persist checkpoint
+   854→ ↓
+   855→next step
+   856→ ↓
+   857→evaluate
+   858→ ↓
+   859→promote/reject
+   860→ ↓
+   861→index
+   862→ ↓
+   863→record outcome
+   864→```
+   865→
+   866→Use checkpoints around:
+   867→
+   868→* external API calls
+   869→* model calls
+   870→* document processing
+   871→* side effects
+   872→* long waits
+   873→
+   874→A later failure should not automatically repeat successfully completed work.
+   875→
+   876→---
+   877→
+   878→# 13. BRAIN API
+   879→
+   880→Create or consolidate around a small, coherent interface.
+   881→
+   882→Conceptually:
+   883→
+   884→```text
+   885→POST /api/brain/respond
+   886→POST /api/brain/stream
+   887→POST /api/brain/retrieve
+   888→POST /api/brain/memory
+   889→POST /api/brain/knowledge
+   890→POST /api/brain/tools/execute
+   891→POST /api/brain/evaluate
+   892→GET  /api/brain/capabilities
+   893→GET  /api/brain/health
+   894→```
+   895→
+   896→Do not create unnecessary endpoints.
+   897→
+   898→Existing routes should be reused when they already fulfill a responsibility.
+   899→
+   900→---
+   901→
+   902→# 14. BRAIN REQUEST CONTRACT
+   903→
+   904→Define a typed request structure similar to:
+   905→
+   906→```typescript
+   907→interface BrainRequest {
+   908→  requestId: string;
+   909→  tenantId: string;
+   910→  applicationId: string;
+   911→  userId?: string;
+   912→  sessionId?: string;
+   913→  conversationId?: string;
+   914→
+   915→  input: {
+   916→    text?: string;
+   917→    attachments?: AttachmentRef[];
+   918→  };
+   919→
+   920→  mode?: "auto" | "fast" | "balanced" | "deep";
+   921→
+   922→  permissions: {
+   923→    scopes: string[];
+   924→  };
+   925→
+   926→  constraints?: {
+   927→    maxLatencyMs?: number;
+   928→    maxCost?: number;
+   929→    allowExternalSearch?: boolean;
+   930→    allowTools?: boolean;
+   931→  };
+   932→
+   933→  metadata?: Record<string, unknown>;
+   934→}
+   935→```
+   936→
+   937→Do not copy this blindly.
+   938→
+   939→Adapt it to the existing platform.
+   940→
+   941→Validate all fields.
+   942→
+   943→---
+   944→
+   945→# 15. BRAIN RESPONSE CONTRACT
+   946→
+   947→Return structured metadata internally.
+   948→
+   949→Conceptually:
+   950→
+   951→```typescript
+   952→interface BrainResponse {
+   953→  requestId: string;
+   954→  answer: string;
+   955→
+   956→  execution: {
+   957→    model: string;
+   958→    provider: string;
+   959→    fallbackUsed: boolean;
+   960→    toolsUsed: string[];
+   961→    retrievalUsed: boolean;
+   962→    verificationUsed: boolean;
+   963→  };
+   964→
+   965→  evidence?: EvidenceRef[];
+   966→
+   967→  state?: {
+   968→    actionStatus?: "none" | "proposed" | "authorized" | "executed";
+   969→  };
+   970→
+   971→  quality?: {
+   972→    evidenceStatus:
+   973→      | "verified"
+   974→      | "supported"
+   975→      | "inferred"
+   976→      | "uncertain"
+   977→      | "conflicted"
+   978→      | "unsupported";
+   979→  };
+   980→}
+   981→```
+   982→
+   983→Do not expose internal-only fields unless appropriate to the product.
+   984→
+   985→---
+   986→
+   987→# 16. IDENTITY MODEL
+   988→
+   989→Separate:
+   990→
+   991→```text
+   992→user
+   993→organization
+   994→tenant
+   995→application
+   996→agent
+   997→service
+   998→session
+   999→device
+  1000→```
+  1001→
+  1002→Do not use a generic user ID as a substitute for an authorization model.
+  1003→
+  1004→The Brain must know:
+  1005→
+  1006→```text WHO
+  1007→IS ASKING
+  1008→FROM WHICH APPLICATION
+  1009→UNDER WHICH TENANT
+  1010→WITH WHICH PERMISSIONS
+  1011→IN WHICH SESSION
+  1012→```
+  1013→
+  1014→---
+  1015→
+  1016→# 17. MULTI-PLATFORM ARCHITECTURE
+  1017→
+  1018→Wedjat AI is intended to serve multiple products.
+  1019→
+  1020→Design application scopes for platforms such as:
+  1021→
+  1022→```text
+  1023→Mashahd
+  1024→Wasl
+  1025→SGTX
+  1026→Wedjat RMS
+  1027→Aurienta
+  1028→Wedjat Justice OS
+  1029→Wedjat Dental OS
+  1030→MTQ-related systems
+  1031→Cirkle ecosystem
+  1032→future Wedjat products
+  1033→```
+  1034→
+  1035→The Brain should provide common intelligence while preserving platform-specific isolation.
+  1036→
+  1037→Each application should have:
+  1038→
+  1039→```text
+  1040→application_id
+  1041→permissions
+  1042→knowledge scope
+  1043→memory scope
+  1044→tool scope
+  1045→policy scope
+  1046→model policy
+  1047→```
+  1048→
+  1049→Do not merge every application's database into one unrestricted context.
+  1050→
+  1051→---
+  1052→
+  1053→# 18. CROSS-PLATFORM KNOWLEDGE RULE
+  1054→
+  1055→Global knowledge and platform-specific knowledge must be separated.
+  1056→
+  1057→For example:
+  1058→
+  1059→```text
+  1060→GLOBAL VERIFIED KNOWLEDGE
+  1061→APPLICATION KNOWLEDGE
+  1062→TENANT KNOWLEDGE
+  1063→ORGANIZATION KNOWLEDGE
+  1064→USER MEMORY
+  1065→SESSION MEMORY
+  1066→```
+  1067→
+  1068→A private application fact must not become global Brain knowledge.
+  1069→
+  1070→---
+  1071→
+  1072→# 19. SGTX INTEGRATION RULE
+  1073→
+  1074→Where Wedjat Brain integrates with SGTX, it must respect SGTX's existing governance architecture.
+  1075→
+  1076→Do not replace, bypass, or weaken:
+  1077→
+  1078→```text
+  1079→Governor
+  1080→OPA
+  1081→WasmEdge constitutional engine
+  1082→Human authorization where required
+  1083→Cryptographic signing
+  1084→Loom
+  1085→NATS
+  1086→Authorized execution
+  1087→```
+  1088→
+  1089→The Brain may advise, retrieve knowledge, analyze, classify, or prepare information.
+  1090→
+  1091→The Brain must not become a replacement for SGTX's governance pipeline.
+  1092→
+  1093→For SGTX:
+  1094→
+  1095→```text
+  1096→USER INTENT
+  1097→→ SGTX API GATEWAY
+  1098→→ BUSINESS SERVICE
+  1099→→ GOVERNOR
+  1100→→ OPA
+  1101→→ WASMEDGE
+  1102→→ AI / COMPLIANCE CONSULTATION
+  1103→→ HUMAN AUTHORIZATION WHERE REQUIRED
+  1104→→ CRYPTOGRAPHIC SIGNATURE
+  1105→→ LOOM
+  1106→→ NATS EVENT
+  1107→→ AUTHORIZED EXECUTION
+  1108→```
+  1109→
+  1110→Wedjat AI should integrate as an intelligence layer without bypassing those controls.
+  1111→
+  1112→---
+  1113→
+  1114→# 20. MEMORY ARCHITECTURE
+  1115→
+  1116→Implement three explicit memory domains.
+  1117→
+  1118→## 20.1 EPISODIC MEMORY
+  1119→
+  1120→Records what happened.
+  1121→
+  1122→Examples:
+  1123→
+  1124→```text
+  1125→conversation
+  1126→message
+  1127→action
+  1128→tool call
+  1129→observation
+  1130→event
+  1131→outcome
+  1132→decision
+  1133→```
+  1134→
+  1135→Do not replace raw historical records with summaries.
+  1136→
+  1137→Summaries are derived representations.
+  1138→
+  1139→---
+  1140→
+  1141→## 20.2 SEMANTIC MEMORY
+  1142→
+  1143→Stores useful durable information.
+  1144→
+  1145→Examples:
+  1146→
+  1147→```text
+  1148→user preference
+  1149→organization fact
+  1150→recurring requirement
+  1151→known system relationship
+  1152→durable project fact
+  1153→```
+  1154→
+  1155→Every durable semantic memory should support:
+  1156→
+  1157→```text
+  1158→memoryId
+  1159→tenantId
+  1160→scope
+  1161→type
+  1162→content
+  1163→source
+  1164→confidence/evidence state
+  1165→createdAt
+  1166→updatedAt
+  1167→validFrom
+  1168→validUntil
+  1169→status
+  1170→version
+  1171→supersedes
+  1172→supersededBy
+  1173→```
+  1174→
+  1175→---
+  1176→
+  1177→## 20.3 PROCEDURAL MEMORY
+  1178→
+  1179→Stores how something should be done.
+  1180→
+  1181→Examples:
+  1182→
+  1183→```text
+  1184→workflow
+  1185→procedure
+  1186→playbook
+  1187→tool procedure
+  1188→domain operating sequence
+  1189→```
+  1190→
+  1191→Procedural memory must be versioned.
+  1192→
+  1193→Do not let a casual conversational message silently replace a trusted operational procedure.
+  1194→
+  1195→---
+  1196→
+  1197→# 21. MEMORY LIFECYCLE
+  1198→
+  1199→Use:
+  1200→
+  1201→```text
+  1202→RAW
+  1203→CANDIDATE
+  1204→VALIDATING
+  1205→VALIDATED
+  1206→ACTIVE
+  1207→SUPERSEDED
+  1208→EXPIRED
+  1209→REJECTED
+  1210→DELETED
+  1211→```
+  1212→
+  1213→Do not create a single boolean:
+  1214→
+  1215→```text learned = true
+  1216→```
+  1217→
+  1218→That is insufficient.
+  1219→
+  1220→---
+  1221→
+  1222→# 22. MEMORY CANDIDATE PIPELINE
+  1223→
+  1224→```text
+  1225→Interaction
+  1226→ ↓
+  1227→Candidate extraction
+  1228→ ↓
+  1229→Classify memory type
+  1230→ ↓
+  1231→Check novelty
+  1232→ ↓
+  1233→Check duplication
+  1234→ ↓
+  1235→Check contradiction
+  1236→ ↓
+  1237→Check scope
+  1238→ ↓
+  1239→Check evidence
+  1240→ ↓
+  1241→Determine promotion eligibility
+  1242→ ↓
+  1243→Promote or reject
+  1244→```
+  1245→
+  1246→---
+  1247→
+  1248→# 23. MEMORY PROMOTION RULES
+  1249→
+  1250→Strong promotion signals may include:
+  1251→
+  1252→* explicit user instruction to remember
+  1253→* confirmed stable preference
+  1254→* repeatedly observed stable fact
+  1255→* verified external fact
+  1256→* confirmed workflow state
+  1257→
+  1258→Weak signals include:
+  1259→
+  1260→* one-off model assumptions
+  1261→* speculative conclusions
+  1262→* inferred personality claims
+  1263→* unverified statements
+  1264→* temporary conversation context
+  1265→
+  1266→Do not confuse repetition with truth.
+  1267→
+  1268→---
+  1269→
+  1270→# 24. MEMORY DECAY
+  1271→
+  1272→Memory relevance can decay.
+  1273→
+  1274→Do not delete required history merely because relevance declines.
+  1275→
+  1276→Maintain separate concepts:
+  1277→
+  1278→```text
+  1279→historical retention
+  1280→```
+  1281→
+  1282→and:
+  1283→
+  1284→```text
+  1285→retrieval relevance
+  1286→```
+  1287→
+  1288→A five-year-old event can remain historically important while receiving low default retrieval weight.
+  1289→
+  1290→---
+  1291→
+  1292→# 25. MEMORY CONSOLIDATION
+  1293→
+  1294→Use scheduled workflows to:
+  1295→
+  1296→```text
+  1297→collect recent memories
+  1298→ ↓
+  1299→deduplicate
+  1300→ ↓
+  1301→merge compatible facts
+  1302→ ↓
+  1303→identify conflicts
+  1304→ ↓
+  1305→expire stale memories
+  1306→ ↓
+  1307→promote stable memories
+  1308→ ↓
+  1309→preserve historical events
+  1310→```
+  1311→
+  1312→Do not repeatedly feed the entire historical database into the model.
+  1313→
+  1314→---
+  1315→
+  1316→# 26. KNOWLEDGE ARCHITECTURE
+  1317→
+  1318→Knowledge must be more structured than:
+  1319→
+  1320→```text
+  1321→document + embedding
+  1322→```
+  1323→
+  1324→Model at least:
+  1325→
+  1326→```text
+  1327→knowledge_item
+  1328→knowledge_version
+  1329→knowledge_claim
+  1330→knowledge_source
+  1331→knowledge_evidence
+  1332→knowledge_entity
+  1333→knowledge_relation
+  1334→knowledge_conflict
+  1335→knowledge_review
+  1336→knowledge_embedding
+  1337→```
+  1338→
+  1339→Use actual relational structure where appropriate.
+  1340→
+  1341→---
+  1342→
+  1343→# 27. KNOWLEDGE TYPES
+  1344→
+  1345→Classify important information.
+  1346→
+  1347→At minimum:
+  1348→
+  1349→```text
+  1350→FACT
+  1351→RULE
+  1352→POLICY
+  1353→PROCEDURE
+  1354→OBSERVATION
+  1355→OPINION
+  1356→INFERENCE
+  1357→PREFERENCE
+  1358→EVENT
+  1359→```
+  1360→
+  1361→The Brain should not treat all types identically.
+  1362→
+  1363→---
+  1364→
+  1365→# 28. PROVENANCE
+  1366→
+  1367→Every trusted knowledge object should track:
+  1368→
+  1369→```text
+  1370→sourceType
+  1371→sourceId
+  1372→sourceURI when available
+  1373→publisher/author when available
+  1374→retrievedAt
+  1375→publishedAt when available
+  1376→documentVersion
+  1377→section/page where available
+  1378→extractionMethod
+  1379→validationMethod
+  1380→verificationStatus
+  1381→```
+  1382→
+  1383→Do not invent missing provenance.
+  1384→
+  1385→---
+  1386→
+  1387→# 29. KNOWLEDGE EVIDENCE
+  1388→
+  1389→A claim should be able to point to evidence.
+  1390→
+  1391→Conceptually:
+  1392→
+  1393→```text
+  1394→CLAIM
+  1395→ ↓
+  1396→EVIDENCE
+  1397→ ↓
+  1398→SOURCE
+  1399→```
+  1400→
+  1401→The Brain should be able to trace:
+  1402→
+  1403→```text
+  1404→Answer
+  1405→ ↓
+  1406→Knowledge claim
+  1407→ ↓
+  1408→Evidence
+  1409→ ↓
+  1410→Source
+  1411→```
+  1412→
+  1413→---
+  1414→
+  1415→# 30. KNOWLEDGE VERSIONING
+  1416→
+  1417→Support:
+  1418→
+  1419→```text
+  1420→version
+  1421→validFrom
+  1422→validUntil
+  1423→supersedes
+  1424→supersededBy
+  1425→```
+  1426→
+  1427→When information changes, preserve history.
+  1428→
+  1429→Do not overwrite historical truth.
+  1430→
+  1431→---
+  1432→
+  1433→# 31. CONTRADICTION MANAGEMENT
+  1434→
+  1435→When a new claim conflicts with existing knowledge:
+  1436→
+  1437→```text
+  1438→New claim
+  1439→ ↓
+  1440→Find related claims
+  1441→ ↓
+  1442→Compare
+  1443→ ↓
+  1444→Detect conflict
+  1445→ ↓
+  1446→Compare source quality
+  1447→ ↓
+  1448→Compare temporal validity
+  1449→ ↓
+  1450→Determine:
+  1451→   compatible
+  1452→   superseding
+  1453→   unresolved
+  1454→   human review
+  1455→```
+  1456→
+  1457→Do not blindly pick the newest statement.
+  1458→
+  1459→Do not blindly pick the most recent embedding.
+  1460→
+  1461→---
+  1462→
+  1463→# 32. KNOWLEDGE PROMOTION
+  1464→
+  1465→Use:
+  1466→
+  1467→```text
+  1468→CANDIDATE
+  1469→ ↓
+  1470→VALIDATING
+  1471→ ↓
+  1472→VALIDATED
+  1473→ ↓
+  1474→ACTIVE
+  1475→```
+  1476→
+  1477→A model-generated statement should normally enter:
+  1478→
+  1479→```text
+  1480→CANDIDATE
+  1481→```
+  1482→
+  1483→rather than:
+  1484→
+  1485→```text
+  1486→ACTIVE
+  1487→```
+  1488→
+  1489→unless it is generated inside a deterministic trusted workflow with known authority.
+  1490→
+  1491→---
+  1492→
+  1493→# 33. KNOWLEDGE REFRESH
+  1494→
+  1495→Support refresh schedules based on data type:
+  1496→
+  1497→```text
+  1498→real-time
+  1499→hourly
+  1500→daily
+  1501→weekly
+  1502→monthly
+  1503→manual
+  1504→event-triggered
+  1505→```
+  1506→
+  1507→Do not refresh everything on one schedule.
+  1508→
+  1509→---
+  1510→
+  1511→# 34. RETRIEVAL ENGINE
+  1512→
+  1513→The Brain must not depend on pure vector similarity.
+  1514→
+  1515→Use a hybrid retrieval architecture.
+  1516→
+  1517→```text
+  1518→QUERY
+  1519→ ↓
+  1520→Query understanding
+  1521→ ↓
+  1522→┌──────────────┬──────────────┬───────────────┐
+  1523→│ semantic     │ keyword      │ structured SQL│
+  1524→│ retrieval    │ retrieval    │ retrieval     │
+  1525→└──────────────┴──────────────┴───────────────┘
+  1526→ ↓
+  1527→candidate pool
+  1528→ ↓
+  1529→metadata filtering
+  1530→ ↓
+  1531→deduplication
+  1532→ ↓
+  1533→reranking
+  1534→ ↓
+  1535→evidence filtering
+  1536→ ↓
+  1537→context assembly
+  1538→```
+  1539→
+  1540→---
+  1541→
+  1542→# 35. SEMANTIC RETRIEVAL
+  1543→
+  1544→Use embeddings for:
+  1545→
+  1546→* semantic similarity
+  1547→* conceptual recall
+  1548→* related memories
+  1549→* related documents
+  1550→* approximate meaning
+  1551→
+  1552→Do not expect vectors to solve:
+  1553→
+  1554→* exact IDs
+  1555→* exact codes
+  1556→* numbers
+  1557→* legal citations
+  1558→* dates
+  1559→* version identifiers
+  1560→
+  1561→---
+  1562→
+  1563→# 36. KEYWORD RETRIEVAL
+  1564→
+  1565→Use lexical search when the task requires:
+  1566→
+  1567→* exact terms
+  1568→* names
+  1569→* identifiers
+  1570→* product codes
+  1571→* legal clauses
+  1572→* document terms
+  1573→* technical tokens
+  1574→
+  1575→---
+  1576→
+  1577→# 37. STRUCTURED RETRIEVAL
+  1578→
+  1579→Use direct SQL/domain queries when the answer already exists in structured data.
+  1580→
+  1581→Example:
+  1582→
+  1583→```text
+  1584→“How much was invoice 1827?”
+  1585→```
+  1586→
+  1587→should normally become:
+  1588→
+  1589→```text
+  1590→database query
+  1591→```
+  1592→
+  1593→not:
+  1594→
+  1595→```text
+  1596→expensive LLM reasoning
+  1597→```
+  1598→
+  1599→---
+  1600→
+  1601→# 38. DETERMINISTIC TASK ROUTER
+  1602→
+  1603→Build a Cognitive Task Router.
+  1604→
+  1605→It decides:
+  1606→
+  1607→```text
+  1608→Can this task be answered deterministically?
+  1609→```
+  1610→
+  1611→Potential paths:
+  1612→
+  1613→```text
+  1614→SQL
+  1615→calculator
+  1616→rules engine
+  1617→policy engine
+  1618→API
+  1619→search
+  1620→retrieval
+  1621→LLM
+  1622→agent workflow
+  1623→```
+  1624→
+  1625→The Brain should use AI when AI is useful, not merely because AI is available.
+  1626→
+  1627→---
+  1628→
+  1629→# 39. RERANKING
+  1630→
+  1631→Retrieve a broader candidate set.
+  1632→
+  1633→Then rerank according to:
+  1634→
+  1635→```text
+  1636→semantic relevance
+  1637→keyword relevance
+  1638→source quality
+  1639→freshness
+  1640→scope
+  1641→verification status
+  1642→entity match
+  1643→task relevance
+  1644→```
+  1645→
+  1646→Do not rank solely by vector distance.
+  1647→
+  1648→---
+  1649→
+  1650→# 40. RETRIEVAL SECURITY
+  1651→
+  1652→Filtering must respect:
+  1653→
+  1654→```text
+  1655→tenant
+  1656→application
+  1657→user
+  1658→permission
+  1659→data classification
+  1660→validity
+  1661→policy
+  1662→```
+  1663→
+  1664→Security filtering must occur before unauthorized information can become part of model context.
+  1665→
+  1666→---
+  1667→
+  1668→# 41. CONTEXT ENGINE
+  1669→
+  1670→The Context Engine determines what information is actually sent to the model.
+  1671→
+  1672→Inputs:
+  1673→
+  1674→```text
+  1675→current request
+  1676→recent conversation
+  1677→relevant memory
+  1678→relevant knowledge
+  1679→tool results
+  1680→policy
+  1681→identity context
+  1682→task context
+  1683→```
+  1684→
+  1685→Outputs:
+  1686→
+  1687→```text
+  1688→minimal sufficient model context
+  1689→```
+  1690→
+  1691→Do not dump every memory and document chunk into every request.
+  1692→
+  1693→---
+  1694→
+  1695→# 42. CONTEXT PRIORITIZATION
+  1696→
+  1697→Prefer:
+  1698→
+  1699→```text
+  1700→current task
+  1701→+
+  1702→relevant recent context
+  1703→+
+  1704→relevant durable memory
+  1705→+
+  1706→relevant verified knowledge
+  1707→+
+  1708→necessary policy
+  1709→+
+  1710→relevant tool results
+  1711→```
+  1712→
+  1713→over:
+  1714→
+  1715→```text
+  1716→everything we know
+  1717→```
+  1718→
+  1719→---
+  1720→
+  1721→# 43. CONTEXT BUDGETING
+  1722→
+  1723→Track:
+  1724→
+  1725→```text
+  1726→system tokens
+  1727→instruction tokens
+  1728→memory tokens
+  1729→knowledge tokens
+  1730→tool tokens
+  1731→history tokens
+  1732→expected output tokens
+  1733→```
+  1734→
+  1735→Set limits.
+  1736→
+  1737→When context exceeds the budget:
+  1738→
+  1739→```text
+  1740→remove low-value history
+  1741→ ↓
+  1742→compress
+  1743→ ↓
+  1744→retain important evidence
+  1745→ ↓
+  1746→retrieve more selectively
+  1747→```
+  1748→
+  1749→---
+  1750→
+  1751→# 44. ENTITY LAYER
+  1752→
+  1753→Build a structured entity abstraction.
+  1754→
+  1755→Entities may include:
+  1756→
+  1757→```text
+  1758→person
+  1759→company
+  1760→organization
+  1761→product
+  1762→document
+  1763→transaction
+  1764→contract
+  1765→location
+  1766→regulation
+  1767→project
+  1768→application
+  1769→API
+  1770→event
+  1771→```
+  1772→
+  1773→Relationships may include:
+  1774→
+  1775→```text
+  1776→OWNS
+  1777→WORKS_FOR
+  1778→LOCATED_IN
+  1779→USES
+  1780→PARTY_TO
+  1781→RELATED_TO
+  1782→DEPENDS_ON
+  1783→MANAGES
+  1784→CREATED
+  1785→UPDATED
+  1786→```
+  1787→
+  1788→Do not deploy a graph database merely because the model contains relationships.
+  1789→
+  1790→Use relational structures first.
+  1791→
+  1792→Introduce specialized graph infrastructure only when measurement justifies it.
+  1793→
+  1794→---
+  1795→
+  1796→# 45. MODEL ABSTRACTION
+  1797→
+  1798→Applications should not directly depend on provider-specific SDKs.
+  1799→
+  1800→Create a model abstraction such as:
+  1801→
+  1802→```typescript
+  1803→interface ModelProvider {
+  1804→  generate(...)
+  1805→  stream(...)
+  1806→  structuredOutput(...)
+  1807→  toolCall(...)
+  1808→  embed(...)
+  1809→}
+  1810→```
+  1811→
+  1812→Add capability metadata:
+  1813→
+  1814→```text
+  1815→text
+  1816→vision
+  1817→audio
+  1818→video
+  1819→toolCalling
+  1820→structuredOutput
+  1821→longContext
+  1822→reasoning
+  1823→coding
+  1824→embedding
+  1825→reranking
+  1826→```
+  1827→
+  1828→---
+  1829→
+  1830→# 46. MODEL REGISTRY
+  1831→
+  1832→Maintain a model registry containing:
+  1833→
+  1834→```text
+  1835→modelId
+  1836→provider
+  1837→version
+  1838→capabilities
+  1839→contextLimit
+  1840→latencyProfile
+  1841→costProfile
+  1842→reliability
+  1843→availability
+  1844→privacy/data policy
+  1845→evaluation results
+  1846→```
+  1847→
+  1848→Do not hard-code assumptions permanently.
+  1849→
+  1850→---
+  1851→
+  1852→# 47. MODEL ROUTER
+  1853→
+  1854→Route according to:
+  1855→
+  1856→```text
+  1857→task
+  1858→complexity
+  1859→required modality
+  1860→context
+  1861→privacy
+  1862→latency
+  1863→cost
+  1864→quality requirement
+  1865→historical evaluation
+  1866→availability
+  1867→```
+  1868→
+  1869→Conceptually:
+  1870→
+  1871→```text
+  1872→simple task
+  1873→→ fast model
+  1874→
+  1875→normal task
+  1876→→ balanced model
+  1877→
+  1878→complex reasoning
+  1879→→ reasoning model
+  1880→
+  1881→specialized task
+  1882→→ specialist
+  1883→
+  1884→high-risk task
+  1885→→ stronger model + verification
+  1886→
+  1887→provider unavailable
+  1888→→ approved fallback
+  1889→```
+  1890→
+  1891→---
+  1892→
+  1893→# 48. MODEL FALLBACK
+  1894→
+  1895→Implement explicit fallback.
+  1896→
+  1897→Fallback can be triggered by:
+  1898→
+  1899→```text
+  1900→timeout
+  1901→rate limit
+  1902→provider outage
+  1903→context overflow
+  1904→unsupported modality
+  1905→tool incompatibility
+  1906→malformed output
+  1907→provider failure
+  1908→```
+  1909→
+  1910→Record:
+  1911→
+  1912→```text
+  1913→primary model
+  1914→fallback model
+  1915→failure reason
+  1916→latency
+  1917→cost
+  1918→outcome
+  1919→```
+  1920→
+  1921→---
+  1922→
+  1923→# 49. DO NOT STACK MODEL GATEWAYS UNNECESSARILY
+  1924→
+  1925→Choose one primary infrastructure gateway.
+  1926→
+  1927→Wedjat should still own the abstraction.
+  1928→
+  1929→Avoid:
+  1930→
+  1931→```text
+  1932→Wedjat
+  1933→→ Gateway A
+  1934→→ Gateway B
+  1935→→ Provider
+  1936→```
+  1937→
+  1938→without a reason.
+  1939→
+  1940→Prefer:
+  1941→
+  1942→```text
+  1943→Wedjat Model Router
+  1944→→ one gateway abstraction
+  1945→→ approved providers/models
+  1946→```
+  1947→
+  1948→The provider infrastructure underneath can evolve.
+  1949→
+  1950→---
+  1951→
+  1952→# 50. MODEL ROUTING SHOULD LEARN FROM MEASURED DATA
+  1953→
+  1954→Track:
+  1955→
+  1956→```text
+  1957→task type
+  1958→model
+  1959→quality
+  1960→latency
+  1961→failure
+  1962→cost
+  1963→fallback frequency
+  1964→user outcome
+  1965→evaluation score
+  1966→```
+  1967→
+  1968→Use this to improve routing.
+  1969→
+  1970→Do not route based merely on model marketing claims.
+  1971→
+  1972→---
+  1973→
+  1974→# 51. TOOL SYSTEM
+  1975→
+  1976→Create a governed tool registry.
+  1977→
+  1978→Every tool should define:
+  1979→
+  1980→```text
+  1981→toolId
+  1982→name
+  1983→description
+  1984→inputSchema
+  1985→outputSchema
+  1986→requiredScopes
+  1987→riskLevel
+  1988→timeout
+  1989→retryPolicy
+  1990→idempotencyPolicy
+  1991→auditRequirement
+  1992→approvalRequirement
+  1993→costProfile
+  1994→```
+  1995→
+  1996→---
+  1997→
+  1998→# 52. TOOL EXECUTION
+  1999→
+  2000→Never:
+
+[showing lines 1-2000 of 5869; use offset=2001 with limit to continue reading]

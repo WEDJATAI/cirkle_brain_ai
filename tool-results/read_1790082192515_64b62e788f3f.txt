@@ -1,0 +1,842 @@
+     1→// WEDJAT BRAIN V2 — Prisma Schema
+     2→// Model-independent cognitive platform. LLM is one replaceable component.
+     3→// Domains: identity, policy, memory, knowledge, retrieval, models, tools,
+     4→// verification, learning, evaluation, observability, audit.
+     5→
+     6→generator client {
+     7→  provider = "prisma-client-js"
+     8→}
+     9→
+    10→datasource db {
+    11→  provider = "postgresql"
+    12→  url      = env("DATABASE_URL")
+    13→}
+    14→
+    15→// ============================================================
+    16→// IDENTITY (§16) — user, organization, tenant, application, session
+    17→// ============================================================
+    18→
+    19→model Tenant {
+    20→  id          String   @id @default(cuid())
+    21→  name        String
+    22→  slug        String   @unique
+    23→  status      String   @default("ACTIVE") // ACTIVE | SUSPENDED | OFFLINE
+    24→  dataPolicy  String   @default("INTERNAL") // PUBLIC | INTERNAL | CONFIDENTIAL | RESTRICTED (§59)
+    25→  createdAt   DateTime @default(now())
+    26→  updatedAt   DateTime @updatedAt
+    27→
+    28→  applications Application[]
+    29→  users        User[]
+    30→  sessions     Session[]
+    31→  conversations Conversation[]
+    32→  memoryItems  MemoryItem[]
+    33→  knowledgeItems KnowledgeItem[]
+    34→  knowledgeSources KnowledgeSource[]
+    35→  knowledgeEvidence KnowledgeEvidence[]
+    36→  knowledgeConflicts KnowledgeConflict[]
+    37→  documents    Document[]
+    38→  brainRuns    BrainRun[]
+    39→  brainEvents  BrainEvent[]
+    40→  auditEvents  AuditEvent[]
+    41→  tools        Tool[]
+    42→  toolExecutions ToolExecution[]
+    43→  feedback     Feedback[]
+    44→  learningCandidates LearningCandidate[]
+    45→  modelUsage   ModelUsage[]
+    46→  policies     Policy[]
+    47→}
+    48→
+    49→model Application {
+    50→  id            String   @id @default(cuid())
+    51→  tenantId      String
+    52→  name          String // Mashahd | Wasl | SGTX | Wedjat RMS | Aurienta | Justice OS | Dental OS | Cirkle
+    53→  slug          String
+    54→  knowledgeScope String  @default("APPLICATION") // GLOBAL | APPLICATION | TENANT
+    55→  memoryScope   String   @default("APPLICATION")
+    56→  toolScope     String   @default("APPLICATION")
+    57→  policyScope   String   @default("APPLICATION")
+    58→  modelPolicy   String   @default("BALANCED") // LOW_COST | BALANCED | HIGH_QUALITY | CRITICAL (§76)
+    59→  status        String   @default("ACTIVE")
+    60→  createdAt     DateTime @default(now())
+    61→  updatedAt     DateTime @updatedAt
+    62→
+    63→  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+    64→  sessions      Session[]
+    65→  conversations  Conversation[]
+    66→  memoryItems   MemoryItem[]
+    67→  knowledgeItems KnowledgeItem[]
+    68→  documents     Document[]
+    69→  brainRuns     BrainRun[]
+    70→  brainEvents   BrainEvent[]
+    71→
+    72→  @@unique([tenantId, slug])
+    73→  @@index([tenantId])
+    74→}
+    75→
+    76→model User {
+    77→  id        String   @id @default(cuid())
+    78→  tenantId  String
+    79→  email     String
+    80→  name      String?
+    81→  scopes    String   @default("brain:read,brain:respond") // comma-separated permission scopes (§14)
+    82→  status    String   @default("ACTIVE")
+    83→  createdAt DateTime @default(now())
+    84→  updatedAt DateTime @updatedAt
+    85→
+    86→  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+    87→  sessions      Session[]
+    88→  conversations Conversation[]
+    89→  memoryItems   MemoryItem[]
+    90→  feedback      Feedback[]
+    91→  brainRuns     BrainRun[]
+    92→
+    93→  @@unique([tenantId, email])
+    94→  @@index([tenantId])
+    95→}
+    96→
+    97→model Session {
+    98→  id            String   @id @default(cuid())
+    99→  tenantId      String
+   100→  applicationId String
+   101→  userId        String?
+   102→  externalRef   String?  // gateway session id (IM metadata)
+   103→  status        String   @default("ACTIVE") // ACTIVE | EXPIRED | CLOSED
+   104→  createdAt     DateTime @default(now())
+   105→  updatedAt     DateTime @updatedAt
+   106→
+   107→  tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   108→  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+   109→  user          User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+   110→  conversations Conversation[]
+   111→
+   112→  @@index([tenantId, applicationId])
+   113→}
+   114→
+   115→// ============================================================
+   116→// CONVERSATIONS & MESSAGES (episodic memory events §20.1)
+   117→// ============================================================
+   118→
+   119→model Conversation {
+   120→  id            String   @id @default(cuid())
+   121→  tenantId      String
+   122→  applicationId String
+   123→  sessionId     String
+   124→  userId        String?
+   125→  title         String?
+   126→  status        String   @default("ACTIVE")
+   127→  createdAt     DateTime @default(now())
+   128→  updatedAt     DateTime @updatedAt
+   129→
+   130→  tenant      Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+   131→  tenantRef   Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   132→  session     Session     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+   133→  user        User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+   134→  messages    Message[]
+   135→  brainRuns   BrainRun[]
+   136→  memoryItems MemoryItem[]
+   137→
+   138→  @@index([tenantId, applicationId, sessionId])
+   139→}
+   140→
+   141→model Message {
+   142→  id             String   @id @default(cuid())
+   143→  conversationId String
+   144→  role           String   // user | assistant | system | tool
+   145→  content        String
+   146→  attachments    String?  // JSON
+   147→  toolsUsed      String?  // JSON array of toolIds
+   148→  modelUsed      String?
+   149→  tokensIn       Int      @default(0)
+   150→  tokensOut      Int      @default(0)
+   151→  costUsd        Float    @default(0)
+   152→  latencyMs      Int      @default(0)
+   153→  evidenceStatus String?  // §84 verified | supported | inferred | uncertain | conflicted | unsupported | unknown
+   154→  actionStatus   String?  // §55 none | proposed | authorized | executed | verified
+   155→  createdAt      DateTime @default(now())
+   156→
+   157→  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+   158→
+   159→  @@index([conversationId])
+   160→}
+   161→
+   162→// ============================================================
+   163→// MEMORY (§20-25) — episodic / semantic / procedural + lifecycle
+   164→// ============================================================
+   165→
+   166→model MemoryItem {
+   167→  id            String   @id @default(cuid())
+   168→  tenantId      String
+   169→  applicationId String
+   170→  userId        String?
+   171→  conversationId String?
+   172→  domain        String   // EPISODIC | SEMANTIC | PROCEDURAL (§20)
+   173→  type          String   // conversation | preference | fact | procedure | observation | decision ... (§20)
+   174→  scope         String   @default("USER") // GLOBAL | APPLICATION | TENANT | ORGANIZATION | USER | SESSION (§18)
+   175→  content       String
+   176→  contentVector String?  // JSON: term-frequency vector for semantic similarity (§35)
+   177→  source        String?  // user | agent | system | tool | external
+   178→  confidence    Float    @default(0.5)
+   179→  status        String   @default("RAW") // RAW | CANDIDATE | VALIDATING | VALIDATED | ACTIVE | SUPERSEDED | EXPIRED | REJECTED | DELETED (§21)
+   180→  version       Int      @default(1)
+   181→  supersedesId  String?
+   182→  supersededById String?
+   183→  validFrom     DateTime?
+   184→  validUntil    DateTime?
+   185→  createdAt     DateTime @default(now())
+   186→  updatedAt     DateTime @updatedAt
+   187→
+   188→  tenant        Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   189→  application   Application  @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+   190→  user          User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+   191→  conversation  Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+   192→
+   193→  @@index([tenantId, applicationId, domain, status])
+   194→  @@index([tenantId, applicationId, scope, status])
+   195→  @@index([userId])
+   196→}
+   197→
+   198→// ============================================================
+   199→// KNOWLEDGE (§26-33) — sources, items, claims, evidence, conflicts, versions
+   200→// ============================================================
+   201→
+   202→model KnowledgeSource {
+   203→  id             String   @id @default(cuid())
+   204→  tenantId       String
+   205→  sourceType     String   // document | web | api | tool | user | system | external (§28)
+   206→  sourceUri      String?
+   207→  title          String
+   208→  author         String?
+   209→  publisher      String?
+   210→  retrievedAt    DateTime @default(now())
+   211→  publishedAt    DateTime?
+   212→  documentVersion String?
+   213→  verificationStatus String @default("UNVERIFIED") // §84
+   214→  trustLevel     String   @default("SUPPORTED") // VERIFIED | SUPPORTED | INFERRED | UNCERTAIN
+   215→  dataClassification String @default("INTERNAL") // §59
+   216→  createdAt      DateTime @default(now())
+   217→
+   218→  tenant         Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   219→  knowledgeItems KnowledgeItem[]
+   220→  evidence       KnowledgeEvidence[]
+   221→  documents      Document[]
+   222→
+   223→  @@index([tenantId, sourceType])
+   224→}
+   225→
+   226→model KnowledgeItem {
+   227→  id             String   @id @default(cuid())
+   228→  tenantId       String
+   229→  applicationId  String
+   230→  sourceId       String?
+   231→  type           String   // FACT | RULE | POLICY | PROCEDURE | OBSERVATION | OPINION | INFERENCE | PREFERENCE | EVENT (§27)
+   232→  scope          String   @default("APPLICATION") // GLOBAL | APPLICATION | TENANT
+   233→  claim          String   // the asserted statement
+   234→  content        String   // fuller context
+   235→  contentVector  String?  // JSON term-frequency vector
+   236→  status         String   @default("CANDIDATE") // CANDIDATE | VALIDATING | VALIDATED | ACTIVE | SUPERSEDED | EXPIRED | REJECTED (§32)
+   237→  version        Int      @default(1)
+   238→  supersedesId   String?
+   239→  supersededById String?
+   240→  validFrom      DateTime?
+   241→  validUntil      DateTime?
+   242→  refreshSchedule String? // real-time | hourly | daily | weekly | monthly | manual | event-triggered (§33)
+   243→  lastRefreshedAt DateTime?
+   244→  confidence      Float   @default(0.5)
+   245→  createdAt       DateTime @default(now())
+   246→  updatedAt       DateTime @updatedAt
+   247→
+   248→  tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   249→  application   Application     @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+   250→  source        KnowledgeSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+   251→  evidence      KnowledgeEvidence[]
+   252→  conflicts     KnowledgeConflict[] @relation("itemA")
+   253→  conflictsAsB  KnowledgeConflict[] @relation("itemB")
+   254→
+   255→  @@index([tenantId, applicationId, type, status])
+   256→  @@index([sourceId])
+   257→}
+   258→
+   259→model KnowledgeEvidence {
+   260→  id             String   @id @default(cuid())
+   261→  tenantId       String
+   262→  knowledgeItemId String?
+   263→  sourceId       String?
+   264→  evidenceType   String   // citation | calculation | observation | tool_result | document_section
+   265→  content        String
+   266→  section        String?  // §/page where available (§28)
+   267→  createdAt      DateTime @default(now())
+   268→
+   269→  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   270→  knowledgeItem  KnowledgeItem?  @relation(fields: [knowledgeItemId], references: [id], onDelete: Cascade)
+   271→  source         KnowledgeSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+   272→
+   273→  @@index([knowledgeItemId])
+   274→}
+   275→
+   276→model KnowledgeConflict {
+   277→  id              String   @id @default(cuid())
+   278→  tenantId        String
+   279→  itemAId         String
+   280→  itemBId         String
+   281→  resolution      String   @default("UNRESOLVED") // COMPATIBLE | SUPERSEDING | UNRESOLVED | HUMAN_REVIEW (§31)
+   282→  resolutionNote  String?
+   283→  resolvedAt      DateTime?
+   284→  createdAt       DateTime @default(now())
+   285→
+   286→  itemA           KnowledgeItem @relation("itemA", fields: [itemAId], references: [id], onDelete: Cascade)
+   287→  itemB           KnowledgeItem @relation("itemB", fields: [itemBId], references: [id], onDelete: Cascade)
+   288→  tenant          Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   289→
+   290→  @@index([tenantId])
+   291→}
+   292→
+   293→// ============================================================
+   294→// DOCUMENTS (§67-69) — sources → chunks → embeddings lineage (§66)
+   295→// ============================================================
+   296→
+   297→model Document {
+   298→  id            String   @id @default(cuid())
+   299→  tenantId      String
+   300→  applicationId String
+   301→  sourceId      String?
+   302→  title         String
+   303→  mimeType      String   @default("text/plain")
+   304→  content       String
+   305→  status        String   @default("UPLOADED") // UPLOADED | EXTRACTED | CHUNKED | EMBEDDED | READY | FAILED
+   306→  createdAt     DateTime @default(now())
+   307→
+   308→  tenant        Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   309→  application   Application  @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+   310→  source        KnowledgeSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+   311→  chunks        DocumentChunk[]
+   312→
+   313→  @@index([tenantId, applicationId])
+   314→}
+   315→
+   316→model DocumentChunk {
+   317→  id            String   @id @default(cuid())
+   318→  documentId    String
+   319→  ordinal       Int
+   320→  content       String
+   321→  contentVector String?  // JSON term-frequency vector
+   322→  section       String?
+   323→  createdAt     DateTime @default(now())
+   324→
+   325→  document      Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+   326→
+   327→  @@index([documentId])
+   328→}
+   329→
+   330→// ============================================================
+   331→// MODELS (§45-50) — registry, capabilities, routes, usage, fallback
+   332→// ============================================================
+   333→
+   334→model Model {
+   335→  id            String   @id @default(cuid())
+   336→  modelId       String   @unique // provider:model e.g. zai:glm-4.6
+   337→  provider      String   // zai | openai | anthropic | local | ...
+   338→  displayName   String
+   339→  tier          String   // FAST | BALANCED | REASONING | SPECIALIST (§47)
+   340→  contextLimit  Int      @default(128000)
+   341→  costInPer1k   Float    @default(0)
+   342→  costOutPer1k  Float    @default(0)
+   343→  capabilities  String   @default("text") // comma: text,vision,audio,video,toolCalling,structuredOutput,longContext,reasoning,coding,embedding,reranking (§45)
+   344→  privacyPolicy String   @default("INTERNAL") // max data class it may receive (§60)
+   345→  latencyP50Ms  Int      @default(800)
+   346→  reliability   Float    @default(0.99)
+   347→  status        String   @default("ACTIVE") // ACTIVE | DEGRADED | OFFLINE
+   348→  fallbackModelId String?
+   349→  createdAt     DateTime @default(now())
+   350→
+   351→  routes        ModelRoute[]
+   352→  usage         ModelUsage[]
+   353→
+   354→  @@index([tier, status])
+   355→}
+   356→
+   357→model ModelRoute {
+   358→  id            String   @id @default(cuid())
+   359→  modelId       String
+   360→  taskType      String   // simple | factual | reasoning | synthesis | coding | tool_use | high_risk (§47)
+   361→  priority      Int      @default(100) // lower = preferred
+   362→  policyMode    String   @default("BALANCED") // LOW_COST | BALANCED | HIGH_QUALITY | CRITICAL (§76)
+   363→  createdAt     DateTime @default(now())
+   364→
+   365→  model         Model @relation(fields: [modelId], references: [id], onDelete: Cascade)
+   366→
+   367→  @@index([taskType, policyMode])
+   368→}
+   369→
+   370→model ModelUsage {
+   371→  id            String   @id @default(cuid())
+   372→  tenantId      String
+   373→  modelId       String
+   374→  requestId     String?
+   375→  tokensIn      Int      @default(0)
+   376→  tokensOut     Int      @default(0)
+   377→  costUsd       Float    @default(0)
+   378→  latencyMs     Int      @default(0)
+   379→  fallbackUsed  Boolean  @default(false)
+   380→  success       Boolean  @default(true)
+   381→  taskType      String?
+   382→  createdAt     DateTime @default(now())
+   383→
+   384→  tenant        Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   385→  model         Model  @relation(fields: [modelId], references: [id], onDelete: Cascade)
+   386→
+   387→  @@index([tenantId, modelId])
+   388→  @@index([requestId])
+   389→}
+   390→
+   391→// ============================================================
+   392→// TOOLS (§51-57) — registry, governed execution, action state machine
+   393→// ============================================================
+   394→
+   395→model Tool {
+   396→  id                 String   @id @default(cuid())
+   397→  tenantId           String
+   398→  toolId             String   @unique // e.g. invoice.lookup, weather.current
+   399→  name               String
+   400→  description        String
+   401→  inputSchema        String   // JSON schema
+   402→  outputSchema       String   // JSON schema
+   403→  requiredScopes     String   @default("") // comma-separated (§51)
+   404→  riskLevel          String   @default("LOW") // LOW | MEDIUM | HIGH | CRITICAL (§56)
+   405→  timeout            Int      @default(10000)
+   406→  idempotencyPolicy  String   @default("IDEMPOTENT") // NONE | IDEMPOTENT | IDEMPOTENCY_KEY
+   407→  auditRequirement   Boolean  @default(true)
+   408→  approvalRequirement Boolean @default(false) // true for HIGH/CRITICAL
+   409→  costProfile        Float    @default(0)
+   410→  status             String   @default("ACTIVE")
+   411→  createdAt          DateTime @default(now())
+   412→
+   413→  tenant             Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   414→  executions         ToolExecution[]
+   415→
+   416→  @@index([tenantId, riskLevel])
+   417→}
+   418→
+   419→model ToolExecution {
+   420→  id             String   @id @default(cuid())
+   421→  tenantId       String
+   422→  toolId         String
+   423→  runId          String?
+   424→  input          String   // JSON
+   425→  output         String?  // JSON
+   426→  state          String   @default("PROPOSED") // PROPOSED | VALIDATED | AUTHORIZED | EXECUTING | EXECUTED | VERIFIED | REJECTED | FAILED | TIMED_OUT (§55)
+   427→  riskLevel      String
+   428→  approver       String?
+   429→  approvedAt     DateTime?
+   430→  idempotencyKey String?
+   431→  error          String?
+   432→  durationMs     Int      @default(0)
+   433→  createdAt      DateTime @default(now())
+   434→  updatedAt      DateTime @updatedAt
+   435→
+   436→  tool           Tool @relation(fields: [toolId], references: [toolId], onDelete: Cascade)
+   437→  run            BrainRun? @relation(fields: [runId], references: [id], onDelete: SetNull)
+   438→  tenant         Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   439→
+   440→  @@index([tenantId, toolId, state])
+   441→  @@index([runId])
+   442→}
+   443→
+   444→// ============================================================
+   445→// BRAIN RUNTIME OBSERVABILITY (§73, §127-130) — runs, steps, events, audit
+   446→// ============================================================
+   447→
+   448→model BrainRun {
+   449→  id             String   @id @default(cuid())
+   450→  requestId     String   @unique
+   451→  tenantId      String
+   452→  applicationId String
+   453→  sessionId     String?
+   454→  conversationId String?
+   455→  userId        String?
+   456→  mode          String   @default("auto") // auto | fast | balanced | deep (§14)
+   457→  taskType      String?  // simple | factual | reasoning | synthesis | tool_use
+   458→  input         String   // JSON BrainRequest.input
+   459→  output        String?  // JSON BrainResponse
+   460→  status        String   @default("RUNNING") // RUNNING | COMPLETED | FAILED | SAFE_MODE
+   461→  modelUsed     String?
+   462→  fallbackUsed  Boolean  @default(false)
+   463→  retrievalUsed Boolean  @default(false)
+   464→  verificationUsed Boolean @default(false)
+   465→  toolsUsed     String?  // JSON array
+   466→  evidenceCount Int      @default(0)
+   467→  memoryCount   Int      @default(0)
+   468→  tokensIn      Int      @default(0)
+   469→  tokensOut     Int      @default(0)
+   470→  costUsd       Float    @default(0)
+   471→  latencyMs     Int      @default(0)
+   472→  errorMessage  String?
+   473→  createdAt     DateTime @default(now())
+   474→  completedAt   DateTime?
+   475→
+   476→  tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   477→  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+   478→  conversation  Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+   479→  user          User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+   480→  steps         BrainStep[]
+   481→  events        BrainEvent[]
+   482→  toolExecutions ToolExecution[]
+   483→
+   484→  @@index([tenantId, applicationId])
+   485→  @@index([status])
+   486→}
+   487→
+   488→model BrainStep {
+   489→  id            String   @id @default(cuid())
+   490→  runId         String
+   491→  stepType      String   // identity | policy | task_router | memory | knowledge | retrieval | context | model_router | model_call | tool | verification | response | learning | audit
+   492→  stepName      String
+   493→  status        String   @default("STARTED") // STARTED | COMPLETED | FAILED | SKIPPED
+   494→  input         String?  // JSON summary
+   495→  output        String?  // JSON summary (no private reasoning — §85)
+   496→  reasonCode    String?  // §85
+   497→  durationMs    Int      @default(0)
+   498→  createdAt     DateTime @default(now())
+   499→
+   500→  run           BrainRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+   501→
+   502→  @@index([runId, stepType])
+   503→}
+   504→
+   505→model BrainEvent {
+   506→  id            String   @id @default(cuid())
+   507→  eventId       String   @unique
+   508→  eventType     String   // §113: brain.requested | brain.responded | brain.memory.candidate | brain.knowledge.candidate | brain.tool.requested | brain.tool.completed | brain.model.fallback | brain.approval.required ...
+   509→  eventVersion  Int      @default(1)
+   510→  tenantId      String
+   511→  applicationId String
+   512→  runId         String?
+   513→  actorType     String?  // user | agent | service | system (§114)
+   514→  actorId       String?
+   515→  data          String   // JSON
+   516→  createdAt     DateTime @default(now())
+   517→
+   518→  tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   519→  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+   520→  run           BrainRun?   @relation(fields: [runId], references: [id], onDelete: SetNull)
+   521→
+   522→  @@index([tenantId, eventType])
+   523→  @@index([runId])
+   524→}
+   525→
+   526→model AuditEvent {
+   527→  id            String   @id @default(cuid())
+   528→  tenantId      String
+   529→  requestId     String?
+   530→  actorType     String
+   531→  actorId       String
+   532→  action        String   // knowledge.promote | policy.change | tool.authorize | external.action | human.approval | model.fallback | security.violation | tenant.boundary.attempt | config.change (§129)
+   533→  target        String?
+   534→  reason        String?
+   535→  metadata      String?  // JSON
+   536→  severity      String   @default("INFO") // INFO | WARN | ERROR | CRITICAL
+   537→  createdAt     DateTime @default(now())
+   538→
+   539→  tenant        Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   540→
+   541→  @@index([tenantId, action])
+   542→  @@index([requestId])
+   543→}
+   544→
+   545→// ============================================================
+   546→// POLICIES (§100-102) — versioned, application-scoped
+   547→// ============================================================
+   548→
+   549→model Policy {
+   550→  id          String   @id @default(cuid())
+   551→  tenantId    String?  // null = global policy (§102)
+   552→  applicationId String? // application-specific override (§102)
+   553→  name        String   // data.access | model.selection | tool.use | memory.retention | external.providers | human.approval | actions
+   554→  version     Int      @default(1)
+   555→  rules       String   // JSON
+   556→  status      String   @default("ACTIVE") // DRAFT | ACTIVE | DEPRECATED | RETIRED (§101)
+   557→  effectiveAt DateTime @default(now())
+   558→  author      String?
+   559→  reason      String?
+   560→  createdAt   DateTime @default(now())
+   561→
+   562→  tenant       Tenant?      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   563→
+   564→  @@unique([tenantId, applicationId, name, version])
+   565→  @@index([name, status])
+   566→}
+   567→
+   568→// ============================================================
+   569→// LEARNING (§94-96) — candidates + decisions
+   570→// ============================================================
+   571→
+   572→model LearningCandidate {
+   573→  id             String   @id @default(cuid())
+   574→  tenantId       String
+   575→  requestId      String?
+   576→  category       String   // memory | knowledge | procedural | routing | prompt | tool | evaluation (§95)
+   577→  proposed       String   // JSON candidate payload
+   578→  evidence       String?  // JSON
+   579→  noveltyScore   Float    @default(0)
+   580→  conflictDetected Boolean @default(false)
+   581→  decision       String   @default("PENDING") // PENDING | PROMOTED | REJECTED | DEFERRED
+   582→  decisionReason String?
+   583→  createdAt      DateTime @default(now())
+   584→  decidedAt      DateTime?
+   585→
+   586→  tenant         Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   587→
+   588→  @@index([tenantId, category, decision])
+   589→}
+   590→
+   591→// ============================================================
+   592→// FEEDBACK (§93)
+   593→// ============================================================
+   594→
+   595→model Feedback {
+   596→  id            String   @id @default(cuid())
+   597→  tenantId      String
+   598→  userId        String?
+   599→  requestId     String?
+   600→  messageId     String?
+   601→  signal        String   // thumbs_up | thumbs_down | correction | edit | retry | regenerate
+   602→  content       String?
+   603→  createdAt     DateTime @default(now())
+   604→
+   605→  tenant        Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+   606→  user          User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+   607→
+   608→  @@index([tenantId, requestId])
+   609→}
+   610→
+   611→// ============================================================
+   612→// EVALUATION (§86-92) — golden sets + runs
+   613→// ============================================================
+   614→
+   615→model EvaluationSet {
+   616→  id          String   @id @default(cuid())
+   617→  name        String
+   618→  description String?
+   619→  status      String   @default("ACTIVE")
+   620→  createdAt   DateTime @default(now())
+   621→
+   622→  cases EvaluationCase[]
+   623→  runs  EvaluationRun[]
+   624→}
+   625→
+   626→model EvaluationCase {
+   627→  id          String   @id @default(cuid())
+   628→  setId       String
+   629→  input       String
+   630→  expected    String?  // expected answer / facts
+   631→  tags        String?  // comma-separated
+   632→  createdAt   DateTime @default(now())
+   633→
+   634→  set         EvaluationSet @relation(fields: [setId], references: [id], onDelete: Cascade)
+   635→
+   636→  @@index([setId])
+   637→}
+   638→
+   639→model EvaluationRun {
+   640→  id          String   @id @default(cuid())
+   641→  setId       String
+   642→  status      String   @default("PENDING") // PENDING | RUNNING | COMPLETED | FAILED
+   643→  results     String?  // JSON {pass,fail,metrics}
+   644→  startedAt   DateTime?
+   645→  completedAt DateTime?
+   646→  createdAt   DateTime @default(now())
+   647→
+   648→  set         EvaluationSet @relation(fields: [setId], references: [id], onDelete: Cascade)
+   649→
+   650→  @@index([setId])
+   651→}
+   652→
+   653→// ============================================================
+   654→// CROSS-PLATFORM ARCHITECTURE (spec §4-18, §27-34, §89-90, §160-167)
+   655→// 14 platforms register as Brain consumers + contributors. Each retains
+   656→// its own source of truth (§2); the Brain owns cognition only.
+   657→// ============================================================
+   658→
+   659→// §4-18, §30 — Platform / application registry. Each connected platform
+   660→// (Cirkle, Mail, Mashahd, SGTX, etc.) gets one Platform row defining its
+   661→// domain, capabilities, scopes, tools, risk ceiling, and adapter status.
+   662→model Platform {
+   663→  id              String   @id @default(cuid())
+   664→  slug            String   @unique // cirkle | mail | mashahd | sgtx | wasl | ...
+   665→  name            String
+   666→  displayName     String
+   667→  domain          String   // social | mail | media | verification | agreements | business | trade | finance | justice | restaurant | dental | compliance
+   668→  description     String?
+   669→  repoUrl         String?
+   670→  productionUrl   String?
+   671→  // §27 adapter contract
+   672→  adapterStatus   String   @default("PENDING") // PENDING | REGISTERED | AUTHENTICATED | ACTIVE | DEGRADED | DISABLED | UNAUTHORIZED | CONFIG_ERROR | AUDITED
+   673→  adapterVersion  String?  // §67 — Brain SDK version the adapter targets
+   674→  // §22-23, §49 knowledge/memory scope rules
+   675→  knowledgeScope  String   @default("APPLICATION") // PRIVATE | APPLICATION | TENANT | GLOBAL_VERIFIED
+   676→  memoryScope     String   @default("APPLICATION")
+   677→  toolScope       String   @default("APPLICATION")
+   678→  // §24 data classification ceiling for this platform's contributions
+   679→  dataClassCeiling String @default("INTERNAL") // PUBLIC | INTERNAL | CONFIDENTIAL | RESTRICTED
+   680→  // §41-42 model routing policy for this platform
+   681→  modelPolicy     String   @default("BALANCED") // LOW_COST | BALANCED | HIGH_QUALITY | CRITICAL
+   682→  // §93 least-privilege: which Brain scopes this platform may exercise
+   683→  allowedBrainScopes String @default("brain:respond,brain:retrieve,brain:memory.read")
+   684→  // §94-96 risk ceiling — platform may not auto-execute above this risk
+   685→  riskCeiling     String   @default("MEDIUM") // LOW | MEDIUM | HIGH | CRITICAL
+   686→  // §160-161 capability registry (JSON): tools, event types, knowledge types
+   687→  capabilities    String   @default("[]") // JSON array of capability strings
+   688→  eventTypes      String   @default("[]") // JSON: [brain.application.request, ...]
+   689→  domainTools     String   @default("[]") // JSON: toolIds this platform registers
+   690→  // §166 health reporting
+   691→  lastHeartbeatAt DateTime?
+   692→  lastEventAt    DateTime?
+   693→  requestCount   Int      @default(0)
+   694→  errorCount     Int      @default(0)
+   695→  costUsdTotal  Float    @default(0)
+   696→  // §157 application personality (tone, workflow, vocab) without a separate AI stack
+   697→  personality    String?  // JSON: { tone, vocabulary, systemPromptSuffix }
+   698→  status         String   @default("REGISTERED") // REGISTERED | ACTIVE | DEGRADED | DISABLED
+   699→  createdAt      DateTime @default(now())
+   700→  updatedAt      DateTime @updatedAt
+   701→
+   702→  events         PlatformEvent[]
+   703→  adapters       AdapterRegistration[]
+   704→  platformApps   PlatformApplication[]
+   705→
+   706→  @@index([domain, status])
+   707→}
+   708→
+   709→// §16, §29 — a Platform may have multiple application instances per tenant
+   710→// (e.g. Acme Corp's Mashahd, Globex's Mashahd). This maps Platform → Application.
+   711→model PlatformApplication {
+   712→  id           String   @id @default(cuid())
+   713→  platformId   String
+   714→  applicationId String
+   715→  tenantId     String
+   716→  status       String   @default("ACTIVE")
+   717→  createdAt    DateTime @default(now())
+   718→
+   719→  platform     Platform    @relation(fields: [platformId], references: [id], onDelete: Cascade)
+   720→
+   721→  @@unique([platformId, applicationId])
+   722→  @@index([tenantId, platformId])
+   723→}
+   724→
+   725→// §27 — adapter registration record. Proves the adapter authenticated as a
+   726→// service identity (§92) with least-privilege credentials (§174).
+   727→model AdapterRegistration {
+   728→  id              String   @id @default(cuid())
+   729→  platformId      String
+   730→  adapterKind     String   // sdk:typescript | sdk:python | webhook | service
+   731→  sdkVersion      String?  // §67
+   732→  authMethod      String   // service_token | oauth | mTLS | signed_jwt
+   733→  serviceIdentity String   // e.g. platform:sgtx:adapter
+   734→  scopes          String   @default("") // comma-separated
+   735→  lastHandshakeAt DateTime?
+   736→  status          String   @default("ACTIVE")
+   737→  createdAt       DateTime @default(now())
+   738→
+   739→  platform        Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
+   740→
+   741→  @@index([platformId, status])
+   742→}
+   743→
+   744→// §20, §68-70 — cross-platform event bus. Every event is versioned (§68),
+   745→// idempotent by eventId (§69), carries provenance + classification (§20),
+   746→// and is processed through the learning pipeline (§21, §94).
+   747→model PlatformEvent {
+   748→  id              String   @id @default(cuid())
+   749→  eventId         String   @unique // §69 idempotency — Brain ignores duplicate eventId
+   750→  eventType       String   // §20, §70: brain.application.request | learning.observation | ...
+   751→  eventVersion    Int      @default(1) // §68
+   752→  platformId      String
+   753→  tenantId        String
+   754→  applicationId   String?
+   755→  userId          String?
+   756→  requestId       String?
+   757→  actorType       String?  // user | agent | service | system | adapter
+   758→  actorId         String?
+   759→  // §20 payload + provenance + classification
+   760→  data            String   // JSON
+   761→  provenance      String?  // JSON: { sourceApp, sourceRecord, sourceUri, retrievedAt, extractionMethod }
+   762→  classification  String   @default("INTERNAL") // §24 PUBLIC | INTERNAL | CONFIDENTIAL | RESTRICTED
+   763→  scope           String   @default("APPLICATION") // §22 GLOBAL | APPLICATION | TENANT | ORGANIZATION | USER | SESSION
+   764→  // §21 pipeline state
+   765→  pipelineState   String   @default("RECEIVED") // RECEIVED | CLASSIFIED | SCOPE_CHECKED | SECURITY_CHECKED | PROVENANCE_ATTACHED | DUPLICATE_CHECKED | NOVELTY_SCORED | CONTRADICTION_CHECKED | QUALITY_CHECKED | PROMOTION_DECIDED | INDEXED | REJECTED
+   766→  pipelineError   String?
+   767→  processedAt     DateTime?
+   768→  createdAt       DateTime @default(now())
+   769→
+   770→  platform        Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
+   771→
+   772→  @@index([platformId, eventType])
+   773→  @@index([tenantId, scope, classification])
+   774→  @@index([pipelineState])
+   775→}
+   776→
+   777→// §89, §166 — per-platform health snapshot (rolled up periodically).
+   778→model PlatformHealth {
+   779→  id              String   @id @default(cuid())
+   780→  platformId      String
+   781→  state           String   // HEALTHY | DEGRADED | PARTIALLY_AVAILABLE | READ_ONLY | SAFE_MODE | OFFLINE | UNAUTHORIZED | CONFIG_ERROR
+   782→  adapterStatus   String
+   783→  requestsLast1h  Int      @default(0)
+   784→  errorsLast1h    Int      @default(0)
+   785→  latencyP95Ms    Int      @default(0)
+   786→  fallbackRate    Float    @default(0)
+   787→  costUsdLast1h   Float    @default(0)
+   788→  learningEvents  Int      @default(0)
+   789→  knowledgeContributed Int @default(0)
+   790→  knowledgeConsumed   Int @default(0)
+   791→  retrievalQuality Float?  // §88 hit rate
+   792→  securityEvents  Int      @default(0)
+   793→  detail          String?
+   794→  capturedAt      DateTime @default(now())
+   795→
+   796→  @@index([platformId, capturedAt])
+   797→}
+   798→
+   799→// §149 — per-platform golden evaluation set (each platform has its own
+   800→// regression suite + the shared global golden set).
+   801→model PlatformEvaluationSet {
+   802→  id          String   @id @default(cuid())
+   803→  platformId  String
+   804→  name        String
+   805→  description String?
+   806→  status      String   @default("ACTIVE")
+   807→  createdAt   DateTime @default(now())
+   808→
+   809→  cases PlatformEvaluationCase[]
+   810→
+   811→  @@index([platformId, status])
+   812→}
+   813→
+   814→model PlatformEvaluationCase {
+   815→  id          String   @id @default(cuid())
+   816→  setId       String
+   817→  input       String
+   818→  expected    String?
+   819→  tags        String?
+   820→  createdAt   DateTime @default(now())
+   821→
+   822→  set         PlatformEvaluationSet @relation(fields: [setId], references: [id], onDelete: Cascade)
+   823→
+   824→  @@index([setId])
+   825→}
+   826→
+   827→// §176-181 — cross-platform acceptance test runs. Records the outcome of
+   828→// running the privacy / knowledge / learning / failure / governance scenarios.
+   829→model AcceptanceTestRun {
+   830→  id            String   @id @default(cuid())
+   831→  scenario      String   // privacy_isolation | knowledge_promotion | learning_loop | failure_disconnect | governance_sgtx | governance_justice | governance_finance
+   832→  platformAId   String?
+   833→  platformBId   String?
+   834→  status        String   @default("PENDING") // PENDING | RUNNING | PASSED | FAILED | BLOCKED
+   835→  detail        String?  // JSON: { steps, assertions, evidence }
+   836→  startedAt     DateTime?
+   837→  completedAt   DateTime?
+   838→  createdAt     DateTime @default(now())
+   839→
+   840→  @@index([scenario, status])
+   841→}
+   842→
