@@ -505,6 +505,213 @@ export async function callProviderModel(req: ModelCallRequest): Promise<ModelCal
   }
 }
 
+// ─── True Token Streaming ───────────────────────────────────────────────
+//
+// Streams tokens as they arrive from the provider (OpenAI-compatible SSE
+// for Groq/OpenRouter/NVIDIA/HuggingFace, Gemini streamGenerateContent).
+// The onToken callback is invoked for each delta — the UI sees tokens
+// in real-time instead of waiting for the full response.
+//
+// Falls back to non-streaming if the provider's streaming endpoint fails.
+
+export interface StreamingCallRequest extends ModelCallRequest {
+  onToken?: (delta: string) => void;
+}
+
+export async function callProviderModelStreaming(req: StreamingCallRequest): Promise<ModelCallResponse> {
+  const start = Date.now();
+  const { model, messages, maxTokens, temperature, onToken } = req;
+
+  try {
+    let content = "";
+
+    switch (model.provider) {
+      case "groq":
+      case "openrouter":
+      case "nvidia":
+      case "huggingface":
+        // All 4 use OpenAI-compatible chat completions with stream:true
+        content = await callOpenAICompatibleStreaming(model.provider, model.rawModelId, messages, maxTokens, temperature, onToken);
+        break;
+      case "gemini":
+        content = await callGeminiStreaming(model.rawModelId, messages, maxTokens, temperature, onToken);
+        break;
+      default:
+        throw new Error(`Unknown provider: ${model.provider}`);
+    }
+
+    const tokensIn = estimateTokens(messages.map(m => m.content).join("\n"));
+    const tokensOut = estimateTokens(content);
+    const costUsd = (tokensIn / 1000) * model.costInPer1k + (tokensOut / 1000) * model.costOutPer1k;
+
+    return {
+      model: model.modelId, provider: model.provider, content, tokensIn, tokensOut, costUsd,
+      latencyMs: Date.now() - start, success: true,
+    };
+  } catch (err: any) {
+    return {
+      model: model.modelId, provider: model.provider, content: "",
+      tokensIn: 0, tokensOut: 0, costUsd: 0,
+      latencyMs: Date.now() - start, success: false, error: err?.message ?? "unknown error",
+    };
+  }
+}
+
+/** OpenAI-compatible streaming (Groq, OpenRouter, NVIDIA, HuggingFace router).
+ *  Parses SSE lines: `data: {"choices":[{"delta":{"content":"..."}}]}` */
+async function callOpenAICompatibleStreaming(
+  provider: ProviderName,
+  modelId: string,
+  messages: Array<{ role: string; content: string }>,
+  maxTokens?: number,
+  temperature?: number,
+  onToken?: (delta: string) => void,
+): Promise<string> {
+  const endpoints: Record<ProviderName, string> = {
+    groq: "https://api.groq.com/openai/v1/chat/completions",
+    openrouter: "https://openrouter.ai/api/v1/chat/completions",
+    nvidia: "https://integrate.api.nvidia.com/v1/chat/completions",
+    huggingface: "https://router.huggingface.co/v1/chat/completions",
+    gemini: "", // not used here
+  };
+  const envKeys: Record<ProviderName, string> = {
+    groq: "GROQ_API_KEY",
+    openrouter: "OPENROUTER_API_KEY",
+    nvidia: "NVIDIA_API_KEY",
+    huggingface: "HUGGINGFACE_API_KEY",
+    gemini: "",
+  };
+  const key = process.env[envKeys[provider]];
+  if (!key) throw new Error(`${envKeys[provider]} not configured`);
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${key}`,
+    "Content-Type": "application/json",
+  };
+  if (provider === "openrouter") {
+    headers["HTTP-Referer"] = "https://cirkle-brain-ai.vercel.app";
+    headers["X-Title"] = "Cirkle Brain AI";
+  }
+
+  const resp = await fetch(endpoints[provider], {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model: modelId,
+      messages,
+      max_tokens: maxTokens ?? 4096,
+      temperature: temperature ?? 0.7,
+      stream: true,
+    }),
+    signal: AbortSignal.timeout(45000),
+  });
+  if (!resp.ok) throw new Error(`${provider} ${resp.status}: ${await safeText(resp)}`);
+  if (!resp.body) throw new Error(`${provider} returned no body for streaming`);
+
+  // Parse SSE stream
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let content = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    // Process complete SSE lines (delimited by \n\n)
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? ""; // keep incomplete line in buffer
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || !trimmed.startsWith("data:")) continue;
+      const data = trimmed.slice(5).trim();
+      if (data === "[DONE]") continue;
+      try {
+        const parsed = JSON.parse(data);
+        const delta = parsed.choices?.[0]?.delta?.content ?? "";
+        if (delta) {
+          content += delta;
+          onToken?.(delta);
+        }
+      } catch {
+        // Skip unparseable chunks (keepalive, partial JSON, etc.)
+      }
+    }
+  }
+  return content;
+}
+
+/** Gemini streaming via streamGenerateContent endpoint. */
+async function callGeminiStreaming(
+  modelId: string,
+  messages: Array<{ role: string; content: string }>,
+  maxTokens?: number,
+  temperature?: number,
+  onToken?: (delta: string) => void,
+): Promise<string> {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) throw new Error("GEMINI_API_KEY not configured");
+
+  const systemPrompt = messages.find(m => m.role === "system")?.content ?? "";
+  const userMessages = messages.filter(m => m.role !== "system");
+  const contents = userMessages.map(m => ({
+    role: m.role === "assistant" ? "model" : "user",
+    parts: [{ text: m.content }],
+  }));
+
+  const resp = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:streamGenerateContent?alt=sse&key=${key}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents,
+        systemInstruction: systemPrompt ? { parts: [{ text: systemPrompt }] } : undefined,
+        generationConfig: {
+          maxOutputTokens: maxTokens ?? 4096,
+          temperature: temperature ?? 0.7,
+        },
+      }),
+      signal: AbortSignal.timeout(45000),
+    },
+  );
+  if (!resp.ok) throw new Error(`Gemini stream ${resp.status}: ${await safeText(resp)}`);
+  if (!resp.body) throw new Error("Gemini returned no body for streaming");
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let content = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || !trimmed.startsWith("data:")) continue;
+      const data = trimmed.slice(5).trim();
+      try {
+        const parsed = JSON.parse(data);
+        const delta = parsed.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+        if (delta) {
+          content += delta;
+          onToken?.(delta);
+        }
+      } catch {
+        // Skip unparseable chunks
+      }
+    }
+  }
+  return content;
+}
+
 // ─── Provider Implementations ────────────────────────────────────────────
 
 async function callGroq(

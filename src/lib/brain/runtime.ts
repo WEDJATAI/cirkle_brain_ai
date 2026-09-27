@@ -372,6 +372,10 @@ export async function runBrain(req: BrainRequest, cb: RuntimeCallbacks = {}): Pr
       }
 
       // Model call — final answer generation with reasoning context
+      // Model call — final answer generation with TRUE TOKEN STREAMING.
+      // The onToken callback streams tokens to the UI as they arrive from
+      // the provider (real-time, not buffered). Falls back to chunking if
+      // streaming fails (the chain handles fallback automatically).
       const modelResult = await step("model_call", `Reasoning via ${selected.model.displayName}`, async () => {
         const toolContext = toolResult?.output
           ? `\n\nTool result (${toolResult.toolId}, state=${toolResult.state}): ${JSON.stringify(toolResult.output)}`
@@ -380,12 +384,17 @@ export async function runBrain(req: BrainRequest, cb: RuntimeCallbacks = {}): Pr
           { role: "system" as const, content: assembly.systemPrompt + toolContext + reasoningContext },
           { role: "user" as const, content: req.input.text ?? "" },
         ];
+        let streamedAny = false;
         const r = await callModel({
           model: selected.model,
           messages,
           fallback: selected.fallback,
           tenantId: identity.tenant.id,
           taskType,
+          onToken: (delta) => {
+            streamedAny = true;
+            emit({ type: "token", delta });
+          },
         });
         if (r.fallbackUsed && selected.fallback) {
           emit({ type: "model", model: selected.fallback.displayName, provider: selected.fallback.provider, fallbackUsed: true, reason: r.fallbackReason });
@@ -398,9 +407,12 @@ export async function runBrain(req: BrainRequest, cb: RuntimeCallbacks = {}): Pr
         tokensOut = r.tokensOut;
         costUsd = r.costUsd;
         modelLatencyMs = r.latencyMs;
-        // Stream tokens (chunk by sentence for UI smoothness)
-        const chunks = answer.match(/[^.!?]+[.!?]?\s*/g) ?? [answer];
-        for (const c of chunks) emit({ type: "token", delta: c });
+        // If streaming didn't produce any tokens (e.g., provider doesn't support
+        // streaming, or all tokens arrived in one chunk), emit the full answer
+        // as a single token so the UI still gets the content.
+        if (!streamedAny && answer) {
+          emit({ type: "token", delta: answer });
+        }
         return r;
       }, fallbackUsed ? "fallback invoked" : "primary model");
 

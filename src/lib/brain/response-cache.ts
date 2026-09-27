@@ -94,4 +94,52 @@ export function getCacheStats(): {
 /** Invalidate all entries (for testing or admin operations). */
 export function clearCache(): void {
   cache.clear();
+  inFlight.clear();
+}
+
+// ─── In-Flight Request Deduplication ──────────────────────────────────────
+//
+// If two users ask the same query simultaneously (or the same user double-
+// clicks send), only ONE model call is made. The second request waits for
+// the first to complete and receives the same cached result.
+//
+// Keyed by the same cache key as the response cache.
+
+const inFlight = new Map<string, Promise<{ answer: string; response: any; evidence?: any[]; tokensIn: number; tokensOut: number; costUsd: number; latencyMs: number }>>();
+
+/**
+ * Deduplicate in-flight requests. If a request with the same key is already
+ * running, returns its promise. Otherwise, registers the factory and returns
+ * the new promise.
+ *
+ * Usage:
+ *   const result = await dedupeInFlight(key, async () => {
+ *     const response = await runBrain(req);
+ *     return { answer: response.answer, response, ... };
+ *   });
+ */
+export function dedupeInFlight<T extends { answer: string; response: any; evidence?: any[]; tokensIn: number; tokensOut: number; costUsd: number; latencyMs: number }>(
+  key: string,
+  factory: () => Promise<T>,
+): Promise<T> {
+  const existing = inFlight.get(key);
+  if (existing) {
+    // Coalesce — both requests get the same result
+    return existing as Promise<T>;
+  }
+  const promise = (async () => {
+    try {
+      return await factory();
+    } finally {
+      // Remove from in-flight map after completion (success or failure)
+      inFlight.delete(key);
+    }
+  })() as Promise<T>;
+  inFlight.set(key, promise as any);
+  return promise;
+}
+
+/** Get in-flight request count (for observability). */
+export function getInFlightCount(): number {
+  return inFlight.size;
 }

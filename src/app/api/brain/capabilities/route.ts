@@ -10,11 +10,19 @@ import {
   type ProviderName,
 } from "@/lib/brain/multi-provider";
 import { getHealthStats } from "@/lib/brain/model-health";
+import { warmupProviders } from "@/lib/brain/warmup";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// Cache for 10 seconds at the CDN, serve stale for up to 60s while revalidating.
+// This makes /capabilities feel instant for dashboard polling.
+export const revalidate = 10;
+
 export async function GET() {
+  // Pre-warm providers on first call (fire-and-forget, populates health stats)
+  warmupProviders();
+
   const tenantCount = await db.tenant.count();
   if (tenantCount === 0) await seedBrain();
 
@@ -82,5 +90,9 @@ export async function GET() {
       "Important knowledge has provenance (§4 Rule 7, §28)",
       "Learning is controlled (§4 Rule 9, §97)",
     ],
+  }, {
+    headers: {
+      "Cache-Control": "public, s-maxage=10, stale-while-revalidate=60",
+    },
   });
 }

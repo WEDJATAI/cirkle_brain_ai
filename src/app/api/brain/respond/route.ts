@@ -11,7 +11,7 @@ import { runBrain } from "@/lib/brain/runtime";
 import { seedBrain } from "@/lib/brain/seed";
 import { db } from "@/lib/db";
 import type { BrainRequest, BrainStreamEvent } from "@/lib/brain/types";
-import { buildCacheKey, getCachedResponse, setCachedResponse } from "@/lib/brain/response-cache";
+import { buildCacheKey, getCachedResponse, setCachedResponse, dedupeInFlight } from "@/lib/brain/response-cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

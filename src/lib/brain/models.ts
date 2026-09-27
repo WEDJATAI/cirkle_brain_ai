@@ -20,6 +20,7 @@ import { checkDataClassAllowed, type PolicyRules } from "./policy";
 import {
   PROVIDER_MODELS,
   callProviderModel,
+  callProviderModelStreaming,
   getModelById,
   getFallbackChain,
   type ProviderModel,
@@ -149,6 +150,9 @@ export interface ModelCallInput {
   fallback?: ModelDescriptor;
   tenantId: string;
   taskType?: TaskType;
+  /** Optional streaming callback. When provided, callModel uses the provider's
+   *  streaming API and invokes onToken for each delta as it arrives. */
+  onToken?: (delta: string) => void;
 }
 
 export async function callModel(input: ModelCallInput): Promise<ModelCallResult> {
@@ -167,11 +171,20 @@ export async function callModel(input: ModelCallInput): Promise<ModelCallResult>
     attempt = entry.descriptor ?? attempt;
     const callStart = Date.now();
     try {
-      const result = await callProviderModel({
-        model: providerModel,
-        messages: input.messages,
-        maxTokens: input.maxTokens,
-      });
+      // Use streaming API if onToken callback is provided, else use the
+      // simpler non-streaming path (avoids SSE parsing overhead).
+      const result = input.onToken
+        ? await callProviderModelStreaming({
+            model: providerModel,
+            messages: input.messages,
+            maxTokens: input.maxTokens,
+            onToken: input.onToken,
+          })
+        : await callProviderModel({
+            model: providerModel,
+            messages: input.messages,
+            maxTokens: input.maxTokens,
+          });
       const callLatency = Date.now() - callStart;
 
       // callProviderModel returns success=false on API errors (4xx/5xx) with
