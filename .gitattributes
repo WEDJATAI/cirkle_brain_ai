@@ -1,0 +1,3 @@
+# .gitattributes — ensure hooks are executable on checkout
+.githooks/pre-push text eol=lf
+scripts/install-git-hooks.sh text eol=lf

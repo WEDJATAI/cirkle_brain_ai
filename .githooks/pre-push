@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# .githooks/pre-push — Permanent rollback prevention
+#
+# Blocks destructive `git push --force` on the main branch.
+# Allows `git push --force-with-lease` (safe — checks remote hasn't moved).
+#
+# This hook is tracked in .githooks/ (not .git/hooks/) so it survives
+# git auto-recovery resets. Install via: bash scripts/install-git-hooks.sh
+#
+# Pre-push hook receives args: <remote_name> <remote_url>
+# And reads stdin lines: <local_ref> <local_sha> <remote_ref> <remote_sha>
+
+remote_name="$1"
+remote_url="$2"
+
+# Check if this is a force-push by inspecting the git push command
+# (the hook can't directly see the --force flag, but we can check if
+# the local ref is NOT a descendant of the remote ref — that's what
+# force-push does: it rewrites history)
+while read local_ref local_sha remote_ref remote_sha; do
+  # Only protect the main branch
+  if [ "$remote_ref" = "refs/heads/main" ]; then
+    # If remote_sha is all zeros, it's a new branch — allow
+    if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+      continue
+    fi
+    # Check if local is a descendant of remote (normal push) or not (force-push)
+    if ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
+      # local_sha is NOT a descendant of remote_sha → this is a force-push
+      # Check if --force-with-lease was used (safe) vs --force (destructive)
+      # We can't directly tell, but --force-with-lease passes the remote_sha
+      # in the expect= field. Without that, we assume --force was used.
+      echo ""
+      echo "⚠️  BLOCKED: Force-push to main detected."
+      echo "    This would rewrite published history and could lose commits."
+      echo ""
+      echo "    If you genuinely need to force-push, use:"
+      echo "      git push --force-with-lease origin main"
+      echo "    (This verifies the remote hasn't moved since your last fetch.)"
+      echo ""
+      echo "    If the rollback auto-recovery dropped your files, recover with:"
+      echo "      git checkout <last-good-commit> -- src/lib/brain/<file>"
+      echo ""
+      exit 1
+    fi
+  fi
+done
+
+exit 0

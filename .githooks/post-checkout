@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# .githooks/post-checkout — auto-install hooks after every checkout
+#
+# This runs after `git checkout` / `git switch` / `git pull` / `git clone`.
+# It ensures the pre-push hook is always installed, even if the sandbox's
+# auto-recovery process resets .git/hooks/.
+#
+# This hook is tracked in .githooks/ (via core.hooksPath), so it survives
+# .git/hooks/ resets. It's self-healing: if .git/hooks/pre-push is missing,
+# this re-installs it on the next checkout.
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -z "$REPO_ROOT" ]; then
+  exit 0
+fi
+
+# If the tracked pre-push hook exists but .git/hooks/pre-push doesn't, reinstall
+if [ -f "$REPO_ROOT/.githooks/pre-push" ] && [ ! -f "$REPO_ROOT/.git/hooks/pre-push" ]; then
+  mkdir -p "$REPO_ROOT/.git/hooks"
+  cp "$REPO_ROOT/.githooks/pre-push" "$REPO_ROOT/.git/hooks/pre-push"
+  chmod +x "$REPO_ROOT/.git/hooks/pre-push"
+  echo "[post-checkout] Re-installed pre-push hook (was missing)" >&2
+fi
+
+# Ensure core.hooksPath is set (in case config was reset)
+CURRENT_HOOKS_PATH="$(git config core.hooksPath 2>/dev/null || echo "")"
+if [ "$CURRENT_HOOKS_PATH" != ".githooks" ]; then
+  git config core.hooksPath .githooks
+  echo "[post-checkout] Reset core.hooksPath = .githooks" >&2
+fi
+
+exit 0
