@@ -26,12 +26,27 @@ if (!TURSO_URL || !TURSO_TOKEN) {
 
 const TURSO_HTTP_URL = TURSO_URL.replace("libsql://", "https://") + "/v2/pipeline";
 
+// Convert a bare JS value into Turso's typed Value enum (required by /v2/pipeline).
+// See https://docs.turso.tech/sdk/http/reference
+function toTursoValue(v: unknown): unknown {
+  if (v === null || v === undefined) return { type: "null" };
+  if (typeof v === "number") {
+    if (Number.isInteger(v)) return { type: "integer", value: String(v) };
+    // Turso expects float value as a JSON number (f64), not a string
+    return { type: "float", value: v };
+  }
+  if (typeof v === "bigint") return { type: "integer", value: v.toString() };
+  if (typeof v === "boolean") return { type: "integer", value: v ? "1" : "0" };
+  // string, Date, anything else → text
+  return { type: "text", value: String(v) };
+}
+
 async function tursoQuery(sql: string, args: unknown[] = []) {
   const body = {
     requests: [
       {
         type: "execute",
-        stmt: { sql, args },
+        stmt: { sql, args: args.map(toTursoValue) },
       },
       { type: "close" },
     ],
@@ -109,9 +124,12 @@ async function main() {
   }
   console.log(`  ✓ Synced ${synced}/${items.length} items to Turso.`);
 
-  // Verify
+  // Verify — Turso v2 pipeline returns rows as arrays of {type, value} objects
   const countResult = await tursoQuery(`SELECT COUNT(*) as count FROM brain_knowledge`);
-  const count = countResult?.rows?.[0]?.[0] ?? 0;
+  const rawCount = countResult?.rows?.[0]?.[0];
+  const count = typeof rawCount === "object" && rawCount !== null
+    ? Number((rawCount as any).value ?? 0)
+    : Number(rawCount ?? 0);
   console.log(`  Turso now has ${count} knowledge items.`);
   console.log("✅ Turso sync complete. Edge/local reads now available via Turso.");
 
