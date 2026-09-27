@@ -254,6 +254,8 @@ model KnowledgeItem {
 
   @@index([tenantId, applicationId, type, status])
   @@index([sourceId])
+  @@index([tenantId, status, validFrom])  // freshness queries (recently valid knowledge)
+  @@index([applicationId, status])       // app-scoped retrieval
 }
 
 model KnowledgeEvidence {
@@ -386,6 +388,9 @@ model ModelUsage {
 
   @@index([tenantId, modelId])
   @@index([requestId])
+  @@index([modelId, success, createdAt])  // health tracker: recent success rate per model
+  @@index([modelId, fallbackUsed])         // fallback analytics
+  @@index([createdAt])                     // time-series cost analytics
 }
 
 // ============================================================
@@ -483,6 +488,9 @@ model BrainRun {
 
   @@index([tenantId, applicationId])
   @@index([status])
+  @@index([createdAt])       // time-series queries (recent runs)
+  @@index([tenantId, status, createdAt])  // tenant dashboard: recent active runs
+  @@index([modelUsed])       // per-model analytics
 }
 
 model BrainStep {

@@ -1,7 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { Send, Loader2, ShieldCheck, AlertTriangle, Database, Cpu, Wrench, Activity, GitBranch, ChevronRight, CircleDot, CheckCircle2, XCircle, Clock, DollarSign, Zap, Layers, FileText, Network, Globe, ThumbsUp, ThumbsDown } from "lucide-react";
+import dynamic from "next/dynamic";
+import { motion, AnimatePresence } from "framer-motion";
+import { Send, Loader2, ShieldCheck, AlertTriangle, Database, Cpu, Wrench, Activity, GitBranch, ChevronRight, ChevronDown, CircleDot, CheckCircle2, XCircle, Clock, DollarSign, Zap, Layers, FileText, Network, Globe, ThumbsUp, ThumbsDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,9 +16,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 import { streamBrainResponse, apiGet, apiPost, type BrainStreamState, initialStreamState } from "@/lib/brain/client";
 import type { BrainMode, EvidenceStatus, ToolResult, TraceStep } from "@/lib/brain/types";
-import { AdminConsole } from "./admin-console";
 import { CirkleMark } from "@/components/brand/cirkle-mark";
 import { toast } from "sonner";
+import { AdminCardSkeleton } from "./skeletons";
+
+// Lazy-load the admin console (heavy tab tree) so its JS only ships when the
+// XL layout actually renders it. While the chunk loads we show a shimmering
+// AdminCardSkeleton so the user sees "something" instantly rather than a
+// blank card slot.
+const AdminConsole = dynamic(
+  () => import("./admin-console").then((m) => ({ default: m.AdminConsole })),
+  {
+    loading: () => <AdminCardSkeleton rows={6} />,
+    ssr: false,
+  },
+);
 
 interface ChatMessage {
   id: string;
@@ -56,6 +70,7 @@ export function BrainWidget() {
   const [messages, setMessages] = React.useState<ChatMessage[]>([]);
   const [activeMessageId, setActiveMessageId] = React.useState<string | null>(null);
   const [streaming, setStreaming] = React.useState(false);
+  const [showScrollButton, setShowScrollButton] = React.useState(false);
   const abortRef = React.useRef<AbortController | null>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
 
@@ -65,9 +80,42 @@ export function BrainWidget() {
       .catch(() => {});
   }, []);
 
+  // Auto-scroll on new messages / streaming tokens — but only if the user is
+  // already parked near the bottom. If they scrolled up to read history, we
+  // don't yank the view down on every token (the scroll-to-bottom button takes
+  // over instead).
   React.useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    const el = scrollRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distanceFromBottom < 140) {
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    }
   }, [messages, activeMessageId]);
+
+  // Track whether the scroll-to-bottom button should be visible. We bind to
+  // scroll events on the chat container rather than the document so the
+  // button only responds to chat-panel scroll, not page scroll.
+  React.useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    let ticking = false;
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+        setShowScrollButton(distanceFromBottom > 220);
+        ticking = false;
+      });
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  function scrollToBottom() {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }
 
   async function send(text?: string) {
     const content = (text ?? input).trim();
@@ -128,7 +176,7 @@ export function BrainWidget() {
             </div>
           </div>
         </CardHeader>
-        <CardContent className="flex-1 overflow-hidden p-0">
+        <CardContent className="relative flex-1 overflow-hidden p-0">
           <div ref={scrollRef} className="h-full overflow-y-auto p-4">
             {messages.length === 0 ? (
               <EmptyState onPick={(p) => send(p)} />
@@ -140,6 +188,27 @@ export function BrainWidget() {
               </div>
             )}
           </div>
+
+          {/* Scroll-to-bottom button — gold-stroke + hover-lift-glow, auto-
+              hides when the user is parked at the latest message. Spring-
+              animated via Framer Motion so it feels like a real chat app. */}
+          <AnimatePresence>
+            {showScrollButton && (
+              <motion.button
+                type="button"
+                onClick={scrollToBottom}
+                initial={{ opacity: 0, y: 10, scale: 0.9 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 10, scale: 0.9 }}
+                transition={{ type: "spring", stiffness: 420, damping: 30 }}
+                className="gold-stroke hover-lift-glow absolute bottom-3 right-3 z-20 flex h-9 w-9 items-center justify-center rounded-full bg-background/80 backdrop-blur"
+                aria-label="Scroll to latest message"
+                title="Scroll to latest"
+              >
+                <ChevronDown className="h-4 w-4 text-[color:var(--gold)]" />
+              </motion.button>
+            )}
+          </AnimatePresence>
         </CardContent>
         <div className="border-t border-[hsl(var(--gold)/0.12)] p-3">
           <div className="flex items-end gap-2">
@@ -209,24 +278,44 @@ function PlatformSelector({ value, onChange, platforms, disabled }: { value: str
 function ModeSelector({ value, onChange, disabled }: { value: BrainMode; onChange: (m: BrainMode) => void; disabled: boolean }) {
   return (
     <TooltipProvider>
-      <div className="flex items-center gap-0.5 rounded-lg border bg-muted/40 p-0.5">
-        {MODES.map((m) => (
-          <Tooltip key={m.value}>
-            <TooltipTrigger asChild>
-              <button
-                disabled={disabled}
-                onClick={() => onChange(m.value)}
-                className={cn(
-                  "rounded-md px-2 py-1 text-xs font-medium transition-colors",
-                  value === m.value ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {m.label}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="text-xs">{m.hint}</TooltipContent>
-          </Tooltip>
-        ))}
+      <div
+        className="relative flex items-center gap-0.5 rounded-lg border bg-muted/40 p-0.5"
+        role="radiogroup"
+        aria-label="Brain mode"
+      >
+        {/* Framer Motion layoutId slides the active background between modes
+            when the user clicks. Spring stiffness 400 / damping 30 gives the
+            "high-end segmented control" feel. */}
+        {MODES.map((m) => {
+          const isActive = value === m.value;
+          return (
+            <Tooltip key={m.value}>
+              <TooltipTrigger asChild>
+                <button
+                  role="radio"
+                  aria-checked={isActive}
+                  disabled={disabled}
+                  onClick={() => onChange(m.value)}
+                  className={cn(
+                    "relative z-10 rounded-md px-2 py-1 text-xs font-medium transition-colors",
+                    isActive ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {isActive && (
+                    <motion.span
+                      layoutId="mode-selector-active"
+                      className="absolute inset-0 z-[-1] rounded-md bg-background shadow-sm"
+                      transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                      style={{ borderRadius: 6 }}
+                    />
+                  )}
+                  {m.label}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs">{m.hint}</TooltipContent>
+            </Tooltip>
+          );
+        })}
       </div>
     </TooltipProvider>
   );
@@ -285,7 +374,8 @@ function EmptyState({ onPick }: { onPick: (p: string) => void }) {
 
 // ---------------------------------------------------------------------------
 // Chat bubble — premium glass treatment with gold-stroke-frame (user) and
-// orbit-ring (assistant). Streaming uses a 3-dot signal-dot loader.
+// orbit-ring (assistant). Streaming uses a 3-dot signal-dot loader, then
+// transitions to a staggered fade-up token stream with a blinking cursor.
 // ---------------------------------------------------------------------------
 function ChatBubble({ message, active }: { message: ChatMessage; active: boolean }) {
   if (message.role === "user") {
@@ -305,6 +395,7 @@ function ChatBubble({ message, active }: { message: ChatMessage; active: boolean
   }
   const state = message.state;
   const streaming = active && !state?.done;
+  const isCacheHit = isCachedResponse(state);
   return (
     <div className="flex flex-col gap-2 animate-fade-up">
       <div className="flex items-start gap-2">
@@ -314,13 +405,16 @@ function ChatBubble({ message, active }: { message: ChatMessage; active: boolean
         <div className="min-w-0 flex-1 space-y-2">
           {message.content ? (
             <div className="orbit-ring relative overflow-hidden rounded-[22px] rounded-tl-md px-3 py-2 text-sm leading-relaxed">
-              <span className="relative">{message.content}</span>
-              {streaming && <span className="ml-0.5 inline-block h-3.5 w-1 cirkle-pulse bg-[color:var(--color-cirkle-cyan)] align-middle" />}
+              {/* StreamingTokenStream splits the accumulated text into
+                  sentence-sized chunks and staggers each with an
+                  animate-fade-up + animation-delay so the response visibly
+                  "writes itself" rather than popping in as a block. */}
+              <StreamingTokenStream content={message.content} streaming={streaming} />
             </div>
           ) : streaming ? (
             <BrainReasoning />
           ) : null}
-          {state && !streaming && <ResponseChips state={state} />}
+          {state && !streaming && <ResponseChips state={state} cacheHit={isCacheHit} />}
           {state && !streaming && state.response && (
             <FeedbackButtons
               requestId={state.response.requestId}
@@ -332,6 +426,71 @@ function ChatBubble({ message, active }: { message: ChatMessage; active: boolean
       </div>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// StreamingTokenStream — splits content into sentence chunks and staggers
+// each with animate-fade-up. The cursor is a vertical bar that blinks via the
+// existing `cirkle-pulse` keyframe while streaming; once the stream ends the
+// cursor fades out (animate-fade-out). The last chunk may be incomplete and
+// still "in flight" — the cursor sits at the end of it.
+// ---------------------------------------------------------------------------
+function StreamingTokenStream({ content, streaming }: { content: string; streaming: boolean }) {
+  // Split into chunks ending at sentence boundaries (. ! ? \n). We keep the
+  // delimiter attached to the chunk so punctuation reads naturally. Trailing
+  // non-terminated text becomes its own "in-flight" final chunk.
+  const chunks = React.useMemo(() => splitSentences(content), [content]);
+  return (
+    <span className="relative">
+      {chunks.map((chunk, i) => {
+        const isLast = i === chunks.length - 1;
+        const delay = Math.min(i * 0.06, 0.6);
+        return (
+          <span
+            key={i}
+            className="animate-fade-up"
+            style={{ animationDelay: `${delay}s` }}
+          >
+            {chunk}
+            {/* Typing cursor only renders at the end of the streaming text. */}
+            {isLast && streaming && (
+              <span
+                aria-hidden
+                className="cirkle-pulse ml-0.5 inline-block h-3.5 w-[2px] translate-y-[1px] rounded-full bg-[color:var(--color-cirkle-cyan)] align-middle"
+              />
+            )}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+// Split text into sentence-ish chunks. Pure function — exported for testing.
+function splitSentences(text: string): string[] {
+  if (!text) return [];
+  // Match sequences ending at ., !, ?, …, or newline — including the trailing
+  // delimiter and any following whitespace. Anything left over (mid-stream
+  // partial sentence) is returned as the final in-flight chunk.
+  const matches = text.match(/[^.!?…\n]+[.!?…]?\s*/g);
+  if (!matches) return [text];
+  // Recombine trailing incomplete fragment if the regex ate past the end.
+  const joined = matches.join("");
+  if (joined.length < text.length) matches.push(text.slice(joined.length));
+  return matches.filter(Boolean);
+}
+
+// ---------------------------------------------------------------------------
+// Cache-hit detection. The Brain tags cached responses with provider="cache"
+// (or sets X-Cirkle-Cache: HIT). We check both the streaming model event and
+// the final response's execution block so the badge appears regardless of
+// whether the user is mid-stream or finished.
+// ---------------------------------------------------------------------------
+function isCachedResponse(state?: BrainStreamState): boolean {
+  if (!state) return false;
+  if (state.model?.provider === "cache") return true;
+  if (state.response?.execution?.provider === "cache") return true;
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -409,12 +568,19 @@ function FeedbackButtons({ requestId, answer, question }: { requestId: string; a
   );
 }
 
-function ResponseChips({ state }: { state: BrainStreamState }) {
+function ResponseChips({ state, cacheHit }: { state: BrainStreamState; cacheHit?: boolean }) {
   const chips: React.ReactNode[] = [];
   if (state.model) {
     chips.push(
       <Chip key="model" icon={<Cpu className="h-3 w-3" />} label={`${state.model.model}${state.model.fallbackUsed ? " (fallback)" : ""}`} tone={state.model.fallbackUsed ? "warn" : "ok"} />
     );
+  }
+  // Cache-hit badge — only renders when the response was served from the LRU
+  // cache (provider === "cache" or X-Cirkle-Cache: HIT). Sits next to the
+  // model chip with a signal-dot mesh icon and a tooltip explaining what it
+  // means.
+  if (cacheHit) {
+    chips.push(<CacheHitBadge key="cache" />);
   }
   if (state.research) {
     chips.push(<Chip key="research" icon={<Globe className="h-3 w-3" />} label={`web: ${state.research.ingestedCount} learned`} tone="info" />);
@@ -434,6 +600,37 @@ function ResponseChips({ state }: { state: BrainStreamState }) {
   }
   if (chips.length === 0) return null;
   return <div className="flex flex-wrap items-center gap-1">{chips}</div>;
+}
+
+// ---------------------------------------------------------------------------
+// CacheHitBadge — small gold-stroke chip with a mesh-state signal-dot icon
+// and "cached" label. Tooltip explains the instant LRU cache semantics.
+// ---------------------------------------------------------------------------
+function CacheHitBadge() {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            className="gold-stroke hover-lift-glow gap-1 text-[10px] font-medium text-[hsl(var(--gold))]"
+            role="status"
+          >
+            <span
+              className="signal-dot"
+              data-state="mesh"
+              style={{ width: 6, height: 6 } as React.CSSProperties}
+              aria-hidden
+            />
+            <Zap className="h-2.5 w-2.5" aria-hidden />
+            <span>cached</span>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="text-xs">
+          Instant response from LRU cache (no model call)
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
 }
 
 function Chip({ icon, label, tone }: { icon: React.ReactNode; label: string; tone: "ok" | "warn" | "err" | "muted" | "info" }) {

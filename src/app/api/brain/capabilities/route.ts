@@ -9,6 +9,7 @@ import {
   getProviderEnvVar,
   type ProviderName,
 } from "@/lib/brain/multi-provider";
+import { getHealthStats } from "@/lib/brain/model-health";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,6 +37,10 @@ export async function GET() {
     tiers: Array.from(new Set(PROVIDER_MODELS.filter(m => m.provider === name).map(m => m.tier))),
   }));
 
+  // Health stats from the intelligent router (per-model success rate, p50 latency,
+  // circuit breaker state)
+  const healthStats = getHealthStats();
+
   return NextResponse.json({
     brain: "Cirkle Brain AI",
     version: "0.1.0",
@@ -45,6 +50,7 @@ export async function GET() {
       availableProviders: getAvailableProviders(),
       totalModels: PROVIDER_MODELS.length,
       zaiRemoved: true,   // consensus — z-ai fully removed
+      healthStats,        // per-model success rate, p50 latency, circuit breaker
     },
     endpoints: [
       "POST /api/brain/respond",

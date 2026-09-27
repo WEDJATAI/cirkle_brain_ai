@@ -24,6 +24,13 @@ import {
   getFallbackChain,
   type ProviderModel,
 } from "./multi-provider";
+import {
+  recordSuccess,
+  recordFailure,
+  effectiveReliability,
+  effectiveLatency,
+  getCircuitBrokenModels,
+} from "./model-health";
 
 // ----------------------------------------------------------------------------
 // Model registry — seeded by /api/brain/seed (§46).
@@ -97,11 +104,33 @@ export async function selectModel(opts: {
     const decision = checkDataClassAllowed(opts.policy, opts.dataClass, m.provider);
     return decision.allowed;
   });
-  const pool = allowed.length > 0 ? allowed : candidates;
-  // pick highest reliability, then lowest cost
-  pool.sort((a, b) => b.reliability - a.reliability || a.costOutPer1k - b.costOutPer1k);
+  let pool = allowed.length > 0 ? allowed : candidates;
+
+  // ─── Intelligent router (self-healing) ────────────────────────────────
+  // Circuit breaker: skip models with 3+ consecutive recent failures.
+  const circuitBroken = getCircuitBrokenModels();
+  const healthy = pool.filter((m) => !circuitBroken.has(m.modelId));
+  if (healthy.length > 0) pool = healthy;
+
+  // Dynamic reliability scoring: blend static prior with observed success rate.
+  // Models that recently failed are demoted; models that recently succeeded are promoted.
+  pool.sort((a, b) => {
+    const aEff = effectiveReliability(a.modelId, a.reliability);
+    const bEff = effectiveReliability(b.modelId, b.reliability);
+    if (bEff !== aEff) return bEff - aEff;
+    // Tiebreaker: lower effective latency first (uses recent p50, not static prior)
+    const aLat = effectiveLatency(a.modelId, a.latencyP50Ms);
+    const bLat = effectiveLatency(b.modelId, b.latencyP50Ms);
+    if (aLat !== bLat) return aLat - bLat;
+    // Final tiebreaker: lowest cost
+    return a.costOutPer1k - b.costOutPer1k;
+  });
+
   const model = pool[0];
-  const reason = `task=${opts.taskType} mode=${opts.mode ?? "auto"} policy=${opts.policyMode} → tier=${tier} → ${model.displayName}`;
+  const effRel = effectiveReliability(model.modelId, model.reliability).toFixed(2);
+  const effLat = effectiveLatency(model.modelId, model.latencyP50Ms);
+  const broken = circuitBroken.size;
+  const reason = `task=${opts.taskType} mode=${opts.mode ?? "auto"} policy=${opts.policyMode} → tier=${tier} → ${model.displayName} (effRel=${effRel}, p50=${effLat}ms, circuitBroken=${broken})`;
   const fallback = model.fallbackModelId
     ? (all.find((m) => m.id === model.fallbackModelId) ?? undefined)
     : undefined;
@@ -136,20 +165,25 @@ export async function callModel(input: ModelCallInput): Promise<ModelCallResult>
     const entry = chain[i];
     const providerModel = entry.providerModel;
     attempt = entry.descriptor ?? attempt;
+    const callStart = Date.now();
     try {
       const result = await callProviderModel({
         model: providerModel,
         messages: input.messages,
         maxTokens: input.maxTokens,
       });
+      const callLatency = Date.now() - callStart;
 
       // callProviderModel returns success=false on API errors (4xx/5xx) with
       // empty content + error message. We must try the next provider in the
       // chain instead of returning empty content to the user.
       if (!result.success || !result.content || result.content.trim().length === 0) {
-        fallbackReason = result.error
+        const err = result.error
           ? `${providerModel.modelId} failed: ${result.error}`
           : `${providerModel.modelId} returned empty content`;
+        fallbackReason = err;
+        // ─── Health tracker: record failure ────────────────────────────
+        recordFailure(providerModel.modelId, callLatency, err);
         if (i < chain.length - 1) {
           fallbackUsed = true;
           // advance to the next provider in the chain
@@ -182,6 +216,9 @@ export async function callModel(input: ModelCallInput): Promise<ModelCallResult>
       }
 
       // success — record usage + return
+      // ─── Health tracker: record success ──────────────────────────────
+      recordSuccess(providerModel.modelId, callLatency);
+
       const tokensIn = result.tokensIn;
       const tokensOut = result.tokensOut;
       const latencyMs = Date.now() - startedAt;
@@ -214,9 +251,13 @@ export async function callModel(input: ModelCallInput): Promise<ModelCallResult>
         success: true,
       };
     } catch (err: any) {
+      const callLatency = Date.now() - callStart;
       // Defensive — callProviderModel should never throw, but just in case
       // (e.g., network timeout from AbortSignal.timeout).
-      fallbackReason = `${providerModel.modelId} threw: ${err?.message ?? "unknown"}`;
+      const errMsg = `${providerModel.modelId} threw: ${err?.message ?? "unknown"}`;
+      fallbackReason = errMsg;
+      // ─── Health tracker: record failure ──────────────────────────────
+      recordFailure(providerModel.modelId, callLatency, errMsg);
       if (i < chain.length - 1) {
         fallbackUsed = true;
         continue;

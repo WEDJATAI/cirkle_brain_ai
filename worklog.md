@@ -1749,3 +1749,60 @@ Stage Summary:
 - Multi-provider self-healing router verified: "9×7=63" and "capital of Japan=Tokyo"
 - All z-ai removed (consensus achieved)
 - If one model fails, automatically tries next available model from any provider
+
+---
+Task ID: UI-PERF-UPGRADE-1
+Agent: UI Architect + Frontend Styling Expert
+Task: Add skeleton loaders + optimistic UI + lazy loading + micro-interactions for top-of-line performance UX
+
+Work Log:
+
+CREATED `src/components/brain/skeletons.tsx` (new file, 4 required skeletons + 1 bonus):
+- `ShimmerBar` primitive — reusable shimmer bar painted via the existing `animate-shimmer` utility from globals.css (no new CSS).
+- `ChatBubbleSkeleton` — assistant message placeholder: orbit-ring avatar slot + glass-strong bubble with 3 staggered shimmer bars. Matches the live ChatBubble DOM rhythm so hydration causes no layout jank.
+- `TraceSkeleton` — 6 (configurable) animated step rows mirroring TraceList structure (signal-dot slot + step name + duration badge).
+- `AdminCardSkeleton` — orbit-ring framed card with header (icon slot + title shimmer) + N body rows matching the admin console card pattern.
+- `PlatformListSkeleton` — 4 (configurable) orbit-ring rows with icon + name + status pill + risk badge slots.
+- `BrainChatSkeleton` (bonus) — full chat column placeholder (header + 2 bubbles + composer) for future lazy-loading of the Brain widget itself.
+- All skeletons are mobile-first responsive and use only existing Cirkle tokens (glass, orbit-ring, gold-stroke-frame, animate-shimmer).
+
+EDITED `src/components/brain/brain-widget.tsx` (8 changes):
+1. Lazy-loaded `AdminConsole` via `next/dynamic` with `ssr: false` + `loading: () => <AdminCardSkeleton rows={6} />` — admin console JS only ships when the XL layout renders it; mobile/tablet users never pay the cost.
+2. Added Framer Motion `motion` + `AnimatePresence` imports and `ChevronDown` / `Zap` from lucide-react.
+3. ModeSelector refactored to use Framer Motion `layoutId="mode-selector-active"` — the active background slides smoothly between Auto / Fast / Balanced / Deep with `transition={{ type: "spring", stiffness: 400, damping: 30 }}`. Also upgraded to a proper radiogroup with aria-checked for accessibility.
+4. Smart scroll behavior — auto-scroll on new messages only fires if the user is parked near the bottom (< 140px from end). If they scroll up to read history, the view is no longer yanked down on every token.
+5. Scroll-to-bottom button — gold-stroke + hover-lift-glow floating action button bottom-right of the chat area, spring-animated (stiffness 420 / damping 30), auto-hides when within 220px of the latest message. `requestAnimationFrame`-throttled scroll listener.
+6. `StreamingTokenStream` — splits assistant content into sentence chunks via `splitSentences()` (regex on `. ! ? … \n`), renders each chunk as its own `animate-fade-up` span with staggered `animation-delay` (capped at 0.6s). The response visibly "writes itself" instead of popping in as a block.
+7. Typing cursor — vertical bar (2px × 3.5px) using the existing `cirkle-pulse` keyframe, shown only on the last chunk while streaming. Disappears when streaming completes.
+8. Cache-hit indicator — new `CacheHitBadge` component (gold-stroke chip + signal-dot mesh icon + Zap icon + "cached" label + tooltip "Instant response from LRU cache (no model call)"). `isCachedResponse()` helper checks both `state.model.provider === "cache"` and `state.response.execution.provider === "cache"`. Wired into `ResponseChips` via a new `cacheHit` prop.
+
+EDITED `src/components/brain/admin-console.tsx` (2 changes):
+1. Lazy-loaded `PlatformControlPlane` via `next/dynamic` with `ssr: false` + `loading: () => <PlatformListSkeleton rows={4} />` — platform control plane bundle (with all per-domain icons, expanded-row detail, acceptance-suite runner) only loads when the Platforms tab is opened.
+2. Added `ModelHealthPanel` — new card on the Health tab that fetches `/api/brain/capabilities` and renders `router.healthStats` array. For each model shows:
+   - modelId (mono font, truncated with title tooltip)
+   - success-rate bar (green > 80%, amber 50–80%, red < 50%) with % label
+   - p50 latency
+   - consecutive failures count
+   - last error (truncated, 2-line clamp)
+   - "circuit broken" red badge (AlertTriangle icon) for models with 3+ consecutive failures, with tooltip explaining the auto-reset semantics
+   - manual refresh button
+   - Sorted by total calls descending so the most-exercised models surface first.
+
+OPTIMISTIC UI (already in place — polished, not changed):
+- The `send()` function already adds both the user message AND an assistant placeholder with `state: { done: false }` to `messages` before `streamBrainResponse` is called. This means the user bubble + BrainReasoning loader appear in the next React tick — before any network request is sent. The placeholder is replaced in place as SSE events arrive. No change needed; the polish was making the streaming content visually "write itself" via StreamingTokenStream.
+
+VERIFICATION:
+- `bun run lint` → 0 errors, 0 warnings ✓
+- Dev server (port 3000) → HTTP 200 on `/`, `/api/brain/platforms`, `/api/brain/capabilities`, `/api/brain/health` ✓
+- agent-browser open + snapshot confirms: Cirkle Brain AI header, Brain mode radiogroup (Auto selected), 6 sample prompts, Cognitive Trace panel, Admin Console with 4 tabs ✓
+- Clicked Health tab → Model Health card renders with 9 models, sorted by total calls, huggingface:meta-llama/Llama-3.3-70B-Instruct at top (100% success rate) and 8 groq/nvidia/gemini/openrouter models below showing 0% + last error messages ✓
+- Screenshot: /tmp/ui-perf-upgrade.png (351 KB, full page)
+
+Stage Summary:
+- The UX now feels instant: typing a prompt immediately renders the user bubble + the orbit-ring "Brain is reasoning…" 3-dot loader (no blank gap), tokens stream in sentence-by-sentence with a blinking cursor, the active mode slides between Auto/Fast/Balanced/Deep with a spring animation, and a floating gold-stroke scroll-to-bottom button appears when the user scrolls up — exactly like a top-tier chat app.
+- Initial JS bundle is now meaningfully smaller: the Admin Console and Platform Control Plane code-split into separate chunks via `next/dynamic` with `ssr: false`, loaded only when their tab is opened. Mobile/tablet users (where the admin console is hidden via `xl:flex`) never download that code at all.
+- Cache-hit indicator makes the LRU cache visible — when the Brain serves a cached response, the user sees a "⚡ cached" badge next to the model chip with a tooltip explaining the instant-response semantics.
+- Model Health card surfaces the self-healing router's per-model success rate, p50 latency, and circuit-breaker state in real time. Operators can see exactly which models are being demoted (red bar + circuit-broken badge) and why (last error line-clamped under each row).
+- Lint clean, dev server healthy, no functionality removed — all existing chat / cognitive trace / admin tabs / platform control plane / feedback buttons / approval workflow / acceptance suite runner continue to work.
+- Screenshot: /tmp/ui-perf-upgrade.png
+- Lint status: 0 errors, 0 warnings

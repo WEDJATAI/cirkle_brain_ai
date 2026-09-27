@@ -1,16 +1,30 @@
 "use client";
 
 import * as React from "react";
-import { Heart, Gauge, ScrollText, Layers, BookOpen, Brain, Play, RefreshCw, CheckCircle2, XCircle, AlertTriangle, Loader2, Trash2, ArrowUpCircle, Network } from "lucide-react";
+import dynamic from "next/dynamic";
+import { Heart, Gauge, ScrollText, Layers, BookOpen, Brain, Play, RefreshCw, CheckCircle2, XCircle, AlertTriangle, Loader2, Trash2, ArrowUpCircle, Network, Activity } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { apiGet, apiPost } from "@/lib/brain/client";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { PlatformControlPlane } from "./platform-control-plane";
+import { PlatformListSkeleton } from "./skeletons";
+
+// Lazy-load the platform control plane. Its bundle (with all the per-domain
+// icons, expanded-row detail, and acceptance-suite runner) is sizable and only
+// needed when the user actually opens the Platforms tab. While it loads we
+// show a PlatformListSkeleton so the tab never appears blank.
+const PlatformControlPlane = dynamic(
+  () => import("./platform-control-plane").then((m) => ({ default: m.PlatformControlPlane })),
+  {
+    loading: () => <PlatformListSkeleton rows={4} />,
+    ssr: false,
+  },
+);
 
 export function AdminConsole() {
   return (
@@ -28,6 +42,7 @@ export function AdminConsole() {
           </TabsContent>
           <TabsContent value="health" className="mt-0 space-y-3">
             <HealthPanel />
+            <ModelHealthPanel />
             <CapabilitiesPanel />
           </TabsContent>
           <TabsContent value="metrics" className="mt-0 space-y-3">
@@ -97,6 +112,117 @@ function HealthPanel() {
             </div>
           </>
         ) : <p className="text-xs text-muted-foreground">Failed to load.</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ModelHealthPanel() {
+  // Pulls the router healthStats from /api/brain/capabilities (no separate
+  // endpoint required — the capabilities manifest already includes them).
+  // We re-fetch on mount and on manual refresh; the underlying model-health
+  // tracker is in-memory per-process so values change as the Brain serves
+  // requests (success/failure recorded by the self-healing router).
+  const { data, loading, reload } = useFetch<any>("/api/brain/capabilities");
+
+  const stats: Array<{
+    modelId: string;
+    totalCalls: number;
+    successRate: number;
+    p50LatencyMs: number;
+    consecutiveFailures: number;
+    lastError: string | null;
+    lastSuccessAt: number | null;
+    lastFailureAt: number | null;
+  }> = data?.router?.healthStats ?? [];
+
+  const sorted = [...stats].sort((a, b) => b.totalCalls - a.totalCalls);
+
+  return (
+    <Card className="orbit-ring shadow-float !rounded-xl !border-0">
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <Activity className="h-4 w-4 text-[color:var(--color-cirkle-cyan)]" />
+            <span className="gradient-text">Model Health</span>
+          </CardTitle>
+          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={reload} disabled={loading} aria-label="Refresh model health">
+            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-1.5">
+        {loading ? (
+          <Loading />
+        ) : sorted.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No model calls observed yet. Send a question to populate health stats.</p>
+        ) : (
+          sorted.map((m) => {
+            const pct = Math.round(m.successRate * 100);
+            const circuitBroken = m.consecutiveFailures >= 3;
+            const tone = pct > 80 ? "ok" : pct >= 50 ? "warn" : "err";
+            const barColor =
+              tone === "ok"
+                ? "bg-emerald-500"
+                : tone === "warn"
+                  ? "bg-amber-500"
+                  : "bg-rose-500";
+            return (
+              <div key={m.modelId} className="gold-stroke-frame glass rounded border-0 p-1.5 text-[10px]">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate font-mono" title={m.modelId}>{m.modelId}</span>
+                  <div className="flex shrink-0 items-center gap-1">
+                    {circuitBroken && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Badge variant="outline" className="border-rose-500/40 bg-rose-500/10 text-[9px] text-rose-700 dark:text-rose-300">
+                              <AlertTriangle className="mr-0.5 h-2.5 w-2.5" /> circuit broken
+                            </Badge>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="text-[10px]">
+                            3+ consecutive failures — removed from candidate pool (auto-resets in 60s)
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
+                    <Badge variant="outline" className="text-[9px]">{m.totalCalls} calls</Badge>
+                  </div>
+                </div>
+                {/* success-rate bar — colored by tier (>80% green, 50-80% amber, <50% red) */}
+                <div className="mt-1.5 flex items-center gap-1.5">
+                  <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-muted/60">
+                    <div
+                      className={cn("h-full rounded-full transition-all", barColor)}
+                      style={{ width: `${Math.max(2, pct)}%` }}
+                    />
+                  </div>
+                  <span
+                    className={cn(
+                      "shrink-0 text-[9px] font-medium tabular-nums",
+                      tone === "ok"
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : tone === "warn"
+                          ? "text-amber-600 dark:text-amber-400"
+                          : "text-rose-600 dark:text-rose-400",
+                    )}
+                  >
+                    {pct}%
+                  </span>
+                </div>
+                <div className="mt-1 flex items-center justify-between text-[9px] text-muted-foreground">
+                  <span>p50: {m.p50LatencyMs > 0 ? `${m.p50LatencyMs}ms` : "—"}</span>
+                  <span>fails: {m.consecutiveFailures}</span>
+                </div>
+                {m.lastError && (
+                  <p className="mt-1 line-clamp-2 text-[9px] text-rose-600/80 dark:text-rose-400/80" title={m.lastError}>
+                    last error: {m.lastError}
+                  </p>
+                )}
+              </div>
+            );
+          })
+        )}
       </CardContent>
     </Card>
   );
