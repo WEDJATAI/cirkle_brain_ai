@@ -44,6 +44,7 @@
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "cmdk": "^1.1.1",
+        "csv-parse": "^7.0.3",
         "date-fns": "^4.1.0",
         "embla-carousel-react": "^8.6.0",
         "framer-motion": "^12.23.2",
@@ -1128,6 +1129,8 @@
     "cross-spawn": ["cross-spawn@7.0.6", "https://registry.npmjs.com/cross-spawn/-/cross-spawn-7.0.6.tgz", { "dependencies": { "path-key": "^3.1.0", "shebang-command": "^2.0.0", "which": "^2.0.1" } }, "sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA=="],
 
     "csstype": ["csstype@3.2.3", "https://registry.npmjs.com/csstype/-/csstype-3.2.3.tgz", {}, "sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ=="],
+
+    "csv-parse": ["csv-parse@7.0.3", "", {}, "sha512-YFd3QM/yo17vH91L1IOZuvl09zM0zEEtdfTcOCKWcMdM++MNaQSyp09slXyFCLaPXvHstQFx/xC8myiFHSMUvw=="],
 
     "d": ["d@1.0.2", "https://registry.npmjs.com/d/-/d-1.0.2.tgz", { "dependencies": { "es5-ext": "^0.10.64", "type": "^2.7.2" } }, "sha512-MOqHvMWF9/9MX6nza0KgvFH4HpMU0EF5uUDXqX/BtxtU8NfB0QzRtJ8Oe/6SuS4kbhyzVJwjd97EA4PKrzJ8bw=="],
 
