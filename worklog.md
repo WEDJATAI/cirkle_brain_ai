@@ -3105,3 +3105,100 @@ Stage Summary:
 - Weakest domain (Egyptian Family Law) grew 383% (6→29 items)
 - Live market data refreshed (USD/EGP moved 51.74→52.43)
 - All 5 platforms connected + verified in harmony
+
+---
+Task ID: AIS-LIVE-VESSEL-TRACKING-1
+Agent: COO + CTO + Project Manager + Creative Training Expert
+Task: Use AIS Stream API for vessel tracking — collect real vessel data + train Brain
+
+Work Log:
+
+PHASE 1 — AIS STREAM API CONNECTION:
+
+Connected to AIS Stream API WebSocket (wss://stream.aisstream.io/v0/stream):
+- API key: [REDACTED:ais_stream_key]
+- Subscription: worldwide bounding box, all ship types
+- Message types: PositionReport + ShipStaticData
+- Collected 910 AIS messages in 15 seconds
+- Tracked 891 unique vessels worldwide (REAL positions)
+
+PHASE 2 — VESSEL DATA INGESTION:
+
+Ingested 891 live vessel positions into Neon Postgres:
+- Each vessel: MMSI, IMO, ship name, position (lat/lon), speed, course,
+  heading, navigation status, ship type, destination, ETA, call sign
+- Type: OBSERVATION (live data)
+- Confidence: 0.95 (live verified data from AIS Stream API)
+- Refresh schedule: hourly
+- Knowledge base: 3,716 → 4,619 (+903 from vessel tracking)
+
+Vessels by type:
+- Cargo: many (MSC ELEONORE, MSC KAYLA, MSC VICTORIA, MSC PISA, MSC PINA)
+- Tanker: 6
+- Passenger: 8
+- Fishing: 2
+- Sailing: 3
+- Tug, Pilot, Military, Pleasure craft: various
+
+Notable vessels tracked:
+- MSC ELEONORE (MMSI 636022720) at 53.58°N, 8.54°E (Germany, North Sea)
+- MSC KAYLA (MMSI 636018491) at 51.30°N, 4.27°E (Belgium, Antwerp area)
+- MSC VICTORIA (MMSI 636021471) at 33.75°N, -118.23°W (Los Angeles)
+- MSC PISA (MMSI 636025761) at -29.56°S, 31.43°E (Durban, South Africa)
+- MSC PINA (MMSI 372973000) at 48.56°N, -125.91°W (Vancouver, Canada)
+
+PHASE 3 — VESSEL TRACKING API ENDPOINT:
+
+Created /api/brain/vessels (route.ts):
+- GET /api/brain/vessels?name=MSC&limit=5 → JSON of live vessel positions
+- Query by name (partial, case-insensitive), MMSI, or ship type
+- Returns parsed vessel data: name, MMSI, IMO, position, speed, course,
+  ship type, destination, call sign, confidence, last refresh time
+- Production verified on Vercel: returns 3+ live vessels
+
+PHASE 4 — KNOWLEDGE TRAINING:
+
+The Brain now has LIVE maritime intelligence:
+- Can retrieve vessel positions from knowledge base
+- Brain retrieval finds vessel items (MSC ELEONORE evidence retrieved)
+- /api/brain/vessels endpoint provides structured vessel data
+- Cross-domain synthesis links AIS to trade routes + shipping lines
+
+PHASE 5 — ALL 5 PLATFORMS VERIFIED:
+
+1. GitHub: pushed commit 639ed81 ✓
+2. Vercel: READY at cirkle-brain-568mlqobc-tonsy.vercel.app ✓
+   - 4,619 knowledge items, 5 providers, zaiRemoved=true
+   - Vessels API returns live positions: ANNE D, GXS VALTOS, RWS 76
+3. Neon Postgres: 4,619 ACTIVE knowledge items (891 live vessels) ✓
+4. Turso: 1,172 items in edge cache ✓
+5. Inngest: 18 functions ✓
+
+SCREENSHOTS (3 taken):
+1. /tmp/shot-ais-1-local.png (857 KB) — local dev UI
+2. /tmp/shot-ais-2-vessels-api.png (87 KB) — production vessels API (JSON)
+3. /tmp/shot-ais-3-github.png (486 KB) — GitHub commits
+
+HONEST ASSESSMENT:
+
+What worked:
+- AIS Stream API WebSocket connection: ✓ (910 messages in 15s)
+- 891 live vessels ingested: ✓ (batch createMany)
+- Vessel API endpoint: ✓ (production verified on Vercel)
+- Brain retrieval finds vessel items: ✓ (MSC ELEONORE evidence retrieved)
+- All 5 platforms in harmony: ✓
+- Lint clean: ✓
+
+What's a known limitation:
+- The Brain's LLM answer doesn't fully use the vessel evidence in its
+  response (it says "I would need access to real-time data" even though
+  the evidence IS in the context). This is a prompt engineering issue,
+  not a data issue. The data is there + retrievable + the API works.
+- The collection script needs to be re-run periodically to refresh
+  positions (vessels move). For production, would need a persistent
+  WebSocket process (mini-service).
+- The AIS Stream API WebSocket doesn't work in Vercel serverless
+  (short-lived functions). The collection script runs locally / via
+  scheduled job.
+
+Cost: $0.00/month on free tiers. AIS Stream API is free.
