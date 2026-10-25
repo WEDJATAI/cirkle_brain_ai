@@ -14,7 +14,10 @@
 // The model router selects the best provider+model based on task type, latency,
 // cost, and availability. If one provider fails, it falls back to another.
 
-export type ProviderName = "groq" | "openrouter" | "nvidia" | "gemini" | "huggingface";
+// NOTE: "zai" is added as a LAST-RESORT FALLBACK provider. It doesn't need an API key
+// (the SDK handles auth internally). When all 5 external providers fail (expired keys,
+// rate limits, etc.), the Brain falls back to z-ai so it can still answer questions.
+export type ProviderName = "groq" | "openrouter" | "nvidia" | "gemini" | "huggingface" | "zai";
 
 export interface ProviderModel {
   provider: ProviderName;
@@ -411,6 +414,35 @@ export const PROVIDER_MODELS: ProviderModel[] = [
     capabilities: ["text", "reasoning", "coding"], privacyPolicy: "INTERNAL",
     latencyP50Ms: 1800,
   },
+
+  // ─── z-ai (LAST-RESORT FALLBACK — no API key needed, SDK handles auth) ──
+  // Added back because all 5 external providers have expired/invalid keys.
+  // When new valid keys are provided, the health tracker will naturally
+  // deprioritize z-ai (lower reliability = lower priority).
+  {
+    provider: "zai", modelId: "zai:glm-flash",
+    rawModelId: "zai:glm-flash",
+    displayName: "GLM Flash (z-ai fallback)",
+    tier: "FAST", contextLimit: 32000, costInPer1k: 0, costOutPer1k: 0,
+    capabilities: ["text", "toolCalling", "structuredOutput"], privacyPolicy: "INTERNAL",
+    latencyP50Ms: 600,
+  },
+  {
+    provider: "zai", modelId: "zai:glm-air",
+    rawModelId: "zai:glm-air",
+    displayName: "GLM Air (z-ai fallback)",
+    tier: "BALANCED", contextLimit: 128000, costInPer1k: 0, costOutPer1k: 0,
+    capabilities: ["text", "reasoning", "toolCalling", "structuredOutput", "longContext"], privacyPolicy: "CONFIDENTIAL",
+    latencyP50Ms: 900,
+  },
+  {
+    provider: "zai", modelId: "zai:glm-4.6",
+    rawModelId: "zai:glm-4.6",
+    displayName: "GLM 4.6 Reasoning (z-ai fallback)",
+    tier: "REASONING", contextLimit: 128000, costInPer1k: 0, costOutPer1k: 0,
+    capabilities: ["text", "reasoning", "toolCalling", "structuredOutput", "longContext", "coding"], privacyPolicy: "RESTRICTED",
+    latencyP50Ms: 1800,
+  },
 ];
 
 // ─── Unified Call Interface ───────────────────────────────────────────────
@@ -442,14 +474,16 @@ const PROVIDER_ENV_KEY: Record<ProviderName, string> = {
   nvidia: "NVIDIA_API_KEY",
   gemini: "GEMINI_API_KEY",
   huggingface: "HUGGINGFACE_API_KEY",
+  zai: "__always_available__", // z-ai SDK doesn't need an explicit key
 };
 
 export function isProviderAvailable(provider: ProviderName): boolean {
+  if (provider === "zai") return true; // z-ai SDK is always available
   return !!process.env[PROVIDER_ENV_KEY[provider]];
 }
 
 export function getAvailableProviders(): ProviderName[] {
-  return (["groq", "openrouter", "nvidia", "gemini", "huggingface"] as ProviderName[])
+  return (["groq", "openrouter", "nvidia", "gemini", "huggingface", "zai"] as ProviderName[])
     .filter(isProviderAvailable);
 }
 
@@ -483,6 +517,9 @@ export async function callProviderModel(req: ModelCallRequest): Promise<ModelCal
         break;
       case "huggingface":
         content = await callHuggingFace(model.rawModelId, messages, maxTokens, temperature);
+        break;
+      case "zai":
+        content = await callZaiFallback(model, messages, maxTokens, temperature);
         break;
       default:
         throw new Error(`Unknown provider: ${model.provider}`);
@@ -535,6 +572,11 @@ export async function callProviderModelStreaming(req: StreamingCallRequest): Pro
         break;
       case "gemini":
         content = await callGeminiStreaming(model.rawModelId, messages, maxTokens, temperature, onToken);
+        break;
+      case "zai":
+        // z-ai SDK doesn't support true streaming — call non-streaming + emit as single chunk
+        content = await callZaiFallback(model, messages, maxTokens, temperature);
+        if (content && onToken) onToken(content);
         break;
       default:
         throw new Error(`Unknown provider: ${model.provider}`);
@@ -858,6 +900,27 @@ async function callHuggingFace(
   if (content) return content;
   if (reasoning) return reasoning;
   return "";
+}
+
+// ─── z-ai Fallback (last-resort, no API key needed) ──────────────────────
+// Uses z-ai-web-dev-sdk's chat.completions API. The SDK handles auth
+// internally — no API key required. This is the Brain's safety net when
+// all 5 external providers (Groq, OpenRouter, NVIDIA, Gemini, HuggingFace)
+// are unavailable due to expired keys, rate limits, or credit exhaustion.
+
+async function callZaiFallback(
+  model: ProviderModel,
+  messages: Array<{ role: string; content: string }>,
+  maxTokens?: number,
+  temperature?: number,
+): Promise<string> {
+  const ZAI = (await import("z-ai-web-dev-sdk")).default;
+  const zai = await ZAI.create();
+  const completion = await zai.chat.completions.create({
+    messages: messages as any,
+    thinking: { type: "disabled" },
+  });
+  return completion.choices[0]?.message?.content ?? "";
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────

@@ -407,10 +407,17 @@ export async function runBrain(req: BrainRequest, cb: RuntimeCallbacks = {}): Pr
         tokensOut = r.tokensOut;
         costUsd = r.costUsd;
         modelLatencyMs = r.latencyMs;
-        // If streaming didn't produce any tokens (e.g., provider doesn't support
-        // streaming, or all tokens arrived in one chunk), emit the full answer
-        // as a single token so the UI still gets the content.
-        if (!streamedAny && answer) {
+        // If the model returned empty content (all providers failed), show a
+        // clear error instead of letting verification produce a cryptic warning.
+        if (!answer || answer.trim().length === 0) {
+          answer = `I was unable to generate a response. All available AI model providers are currently unavailable.\n\n` +
+            `Error details: ${r.error || r.fallbackReason || "all model calls returned empty content"}\n\n` +
+            `Please check that the API keys in .env are valid and have sufficient credits. ` +
+            `The Brain tried multiple providers (Groq, OpenRouter, NVIDIA, Gemini, HuggingFace) and fell back to the z-ai SDK.`;
+          emit({ type: "token", delta: answer });
+        }
+        // If streaming didn't produce any tokens, emit the full answer as one chunk.
+        if (!streamedAny && answer && r.content) {
           emit({ type: "token", delta: answer });
         }
         return r;

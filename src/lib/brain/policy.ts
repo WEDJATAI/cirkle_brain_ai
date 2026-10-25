@@ -33,8 +33,12 @@ const DEFAULT_RULES: PolicyRules = {
   maxCostPerRequest: 0.5,
   maxLatencyMs: 30000,
   allowedDataClasses: ["PUBLIC", "INTERNAL", "CONFIDENTIAL"],
-  // CONSENSUS: z-ai removed. Allow all 5 multi-provider providers.
-  allowedProviders: ["groq", "openrouter", "nvidia", "gemini", "huggingface"],
+  // CONSENSUS: z-ai removed as PRIMARY provider. z-ai is now a LAST-RESORT
+  // FALLBACK when all 5 external providers (Groq, OpenRouter, NVIDIA, Gemini,
+  // HuggingFace) fail. It's included in allowedProviders so the fallback chain
+  // can reach it. When new valid external keys are provided, the health tracker
+  // will deprioritize z-ai (lower reliability = lower priority).
+  allowedProviders: ["groq", "openrouter", "nvidia", "gemini", "huggingface", "zai"],
   allowedTools: "*",
   toolRiskCeiling: "MEDIUM",
   humanApprovalRequiredAbove: "MEDIUM",

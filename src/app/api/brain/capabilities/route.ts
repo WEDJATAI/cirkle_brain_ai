@@ -36,7 +36,7 @@ export async function GET() {
   ]);
 
   // Build multi-provider router status across all 5 providers (no z-ai).
-  const allProviders: ProviderName[] = ["groq", "openrouter", "nvidia", "gemini", "huggingface"];
+  const allProviders: ProviderName[] = ["groq", "openrouter", "nvidia", "gemini", "huggingface", "zai"];
   const providers = allProviders.map(name => ({
     name,
     envVar: getProviderEnvVar(name),
