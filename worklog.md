@@ -3413,3 +3413,73 @@ Knowledge base growth summary:
 - Net change: +514 items
 
 Cost: $0.00/month on free tiers.
+
+---
+Task ID: REASONING-FIX-AUDIT-1
+Agent: COO + CTO + Project Manager + Reasoning Expert
+Task: Full end-to-end audit of reasoning failure + fix + download reasoning databases
+
+HONEST AUDIT RESULTS:
+
+ROOT CAUSE: ALL 5 provider API keys are expired/invalid/out of credits
+- Groq: 403 Forbidden (key completely invalid — fails on /models endpoint)
+- OpenRouter: "Insufficient credits. Account never purchased credits."
+- HuggingFace: "You have no remaining credits. Purchase pre-paid credits."
+- Gemini key 1: "User location is not supported for the API use"
+- Gemini key 2: "API key not valid"
+- NVIDIA: "Model reached end of life on 2026-08-26"
+
+This is why "reasoning doesn't work at all" — every single model call
+returned empty content. The Brain then showed a misleading
+"Evidence status: UNKNOWN" warning instead of telling the user the
+models were down.
+
+FIXES APPLIED:
+
+1. RE-ADDED z-ai AS LAST-RESORT FALLBACK:
+   - z-ai SDK (z-ai-web-dev-sdk) doesn't need an API key
+   - Added 3 z-ai models (FAST/BALANCED/REASONING) to PROVIDER_MODELS
+   - Added callZaiFallback() function
+   - When all 5 external providers fail, Brain falls back to z-ai
+   - VERIFIED: Brain answers "What is 2+2?" → "2 plus 2 equals 4" ✓
+   - VERIFIED: Brain answers "deductive vs inductive reasoning?" → correct ✓
+
+2. FIXED RUNTIME ERROR HANDLING:
+   - When all models return empty, now shows clear error:
+     "I was unable to generate a response. All available AI model
+      providers are currently unavailable." + error details
+   - Instead of misleading "Evidence status: UNKNOWN"
+
+3. REASONING DATABASES DOWNLOADED:
+   - Logic: deductive, inductive, abductive reasoning, syllogisms,
+     fallacies, formal/informal logic (10 Wikipedia articles)
+   - Critical thinking: cognitive biases, confirmation bias,
+     Dunning-Kruger, logical fallacies, straw man, ad hominem (11 articles)
+   - Philosophy: epistemology, rationalism, empiricism, pragmatism,
+     truth, Socratic method, thought experiments (10 articles)
+   - Scientific method: hypothesis, experiment, falsifiability,
+     Occam's razor, correlation vs causation, decision theory (12 articles)
+   - Mathematical reasoning: proofs, induction, contradiction,
+     set theory, probability, statistics, algebra, calculus (8 articles)
+
+4. KNOWLEDGE BASE: 5,907 → 6,498 (+591 reasoning items)
+
+ALL 5 PLATFORMS VERIFIED:
+1. GitHub: pushed commit 889aa24 ✓
+2. Vercel: READY at cirkle-brain-qmh245dz5-tonsy.vercel.app ✓
+   - 6,498 knowledge items, 6 providers (5 external + z-ai fallback), 44 models
+3. Neon Postgres: 6,498 ACTIVE knowledge items ✓
+4. Turso: 1,172 items in edge cache ✓
+5. Inngest: 18 functions ✓
+
+SCREENSHOTS (3 taken):
+1. /tmp/shot-reason-1-local.png — local dev UI
+2. /tmp/shot-reason-2-capabilities.png — capabilities API (6,498 items, 6 providers)
+3. /tmp/shot-reason-3-github.png — GitHub commits
+
+HONEST ASSESSMENT:
+- ALL 5 external provider API keys are expired/invalid (user needs new keys)
+- z-ai fallback works — Brain CAN answer questions now via z-ai SDK
+- Reasoning databases ingested — Brain has logic, critical thinking, philosophy
+- Runtime error handling fixed — clear messages instead of cryptic warnings
+- When user provides new valid API keys, z-ai will be deprioritized by health tracker
