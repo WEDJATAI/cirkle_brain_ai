@@ -1,0 +1,512 @@
+     1→// WEDJAT BRAIN V2 — Seed data (Phase 0 baseline + §86 golden dataset).
+     2→//
+     3→// Seeds: tenants (Acme Corp, Globex), applications (Mashahd, Wasl), users,
+     4→// models, tools, policies, knowledge sources/items/evidence, memory,
+     5→// evaluation set. Idempotent — safe to run multiple times.
+     6→
+     7→import { db } from "@/lib/db";
+     8→import { buildTermVector, serializeVector } from "./vectors";
+     9→import { seedGeneralKnowledge } from "./knowledge-base";
+    10→import { seedGeneralKnowledgeV2 } from "./knowledge-base-v2";
+    11→import { seedGeneralKnowledgeV3 } from "./knowledge-base-v3";
+    12→
+    13→export async function seedBrain(): Promise<{ created: Record<string, number>; skipped: boolean }> {
+    14→  const created: Record<string, number> = {};
+    15→
+    16→  // ----- Tenant: Acme Corp (data policy INTERNAL) -----
+    17→  const acme = await db.tenant.upsert({
+    18→    where: { slug: "acme" },
+    19→    update: {},
+    20→    create: { name: "Acme Corp", slug: "acme", dataPolicy: "INTERNAL", status: "ACTIVE" },
+    21→  });
+    22→  const globex = await db.tenant.upsert({
+    23→    where: { slug: "globex" },
+    24→    update: {},
+    25→    create: { name: "Globex", slug: "globex", dataPolicy: "CONFIDENTIAL", status: "ACTIVE" },
+    26→  });
+    27→
+    28→  // ----- Applications (§17) -----
+    29→  const mashahd = await db.application.upsert({
+    30→    where: { tenantId_slug: { tenantId: acme.id, slug: "mashahd" } },
+    31→    update: {},
+    32→    create: {
+    33→      tenantId: acme.id, name: "Mashahd", slug: "mashahd",
+    34→      knowledgeScope: "APPLICATION", memoryScope: "APPLICATION",
+    35→      toolScope: "APPLICATION", policyScope: "APPLICATION", modelPolicy: "BALANCED",
+    36→    },
+    37→  });
+    38→  const wasl = await db.application.upsert({
+    39→    where: { tenantId_slug: { tenantId: acme.id, slug: "wasl" } },
+    40→    update: {},
+    41→    create: {
+    42→      tenantId: acme.id, name: "Wasl", slug: "wasl",
+    43→      knowledgeScope: "APPLICATION", memoryScope: "APPLICATION",
+    44→      toolScope: "APPLICATION", policyScope: "APPLICATION", modelPolicy: "HIGH_QUALITY",
+    45→    },
+    46→  });
+    47→  const globexApp = await db.application.upsert({
+    48→    where: { tenantId_slug: { tenantId: globex.id, slug: "rms" } },
+    49→    update: {},
+    50→    create: {
+    51→      tenantId: globex.id, name: "Globex RMS", slug: "rms",
+    52→      modelPolicy: "BALANCED",
+    53→    },
+    54→  });
+    55→  created.applications = 3;
+    56→
+    57→  // ----- Users -----
+    58→  const alice = await db.user.upsert({
+    59→    where: { tenantId_email: { tenantId: acme.id, email: "alice@acme.test" } },
+    60→    update: {},
+    61→    create: { tenantId: acme.id, email: "alice@acme.test", name: "Alice", scopes: "brain:read,brain:respond,brain:tools.execute,brain:admin" },
+    62→  });
+    63→  created.users = 1;
+    64→
+    65→  // ----- Models (§46 registry) -----
+    66→  const fastModel = await db.model.upsert({
+    67→    where: { modelId: "zai:glm-flash" },
+    68→    update: {},
+    69→    create: {
+    70→      modelId: "zai:glm-flash", provider: "zai", displayName: "GLM Flash",
+    71→      tier: "FAST", contextLimit: 32000, costInPer1k: 0.0, costOutPer1k: 0.0,
+    72→      capabilities: "text,reasoning,toolCalling,structuredOutput",
+    73→      privacyPolicy: "INTERNAL", latencyP50Ms: 600, reliability: 0.99, status: "ACTIVE",
+    74→      fallbackModelId: undefined,
+    75→    },
+    76→  });
+    77→  const balancedModel = await db.model.upsert({
+    78→    where: { modelId: "zai:glm-air" },
+    79→    update: {},
+    80→    create: {
+    81→      modelId: "zai:glm-air", provider: "zai", displayName: "GLM Air",
+    82→      tier: "BALANCED", contextLimit: 128000, costInPer1k: 0.0, costOutPer1k: 0.0,
+    83→      capabilities: "text,reasoning,toolCalling,structuredOutput,longContext",
+    84→      privacyPolicy: "CONFIDENTIAL", latencyP50Ms: 900, reliability: 0.99, status: "ACTIVE",
+    85→      fallbackModelId: fastModel.id,
+    86→    },
+    87→  });
+    88→  const reasoningModel = await db.model.upsert({
+    89→    where: { modelId: "zai:glm-4.6" },
+    90→    update: {},
+    91→    create: {
+    92→      modelId: "zai:glm-4.6", provider: "zai", displayName: "GLM 4.6 Reasoning",
+    93→      tier: "REASONING", contextLimit: 128000, costInPer1k: 0.0, costOutPer1k: 0.0,
+    94→      capabilities: "text,reasoning,toolCalling,structuredOutput,longContext,coding",
+    95→      privacyPolicy: "RESTRICTED", latencyP50Ms: 1800, reliability: 0.97, status: "ACTIVE",
+    96→      fallbackModelId: balancedModel.id,
+    97→    },
+    98→  });
+    99→  created.models = 3;
+   100→
+   101→  // ----- Model routes (§47) -----
+   102→  await ensureRoute(balancedModel.id, "factual", "BALANCED", 10);
+   103→  await ensureRoute(fastModel.id, "simple", "BALANCED", 10);
+   104→  await ensureRoute(reasoningModel.id, "reasoning", "BALANCED", 10);
+   105→  await ensureRoute(reasoningModel.id, "synthesis", "BALANCED", 20);
+   106→  await ensureRoute(reasoningModel.id, "coding", "BALANCED", 10);
+   107→  await ensureRoute(balancedModel.id, "tool_use", "BALANCED", 30);
+   108→  await ensureRoute(reasoningModel.id, "high_risk", "CRITICAL", 10);
+   109→
+   110→  // ----- Policies (§100, §102) -----
+   111→  await db.policy.upsert({
+   112→    where: { tenantId_applicationId_name_version: { tenantId: "global", applicationId: "global" as any, name: "data.access", version: 1 } as any },
+   113→    update: {},
+   114→    create: {
+   115→      tenantId: null, applicationId: null, name: "data.access", version: 1,
+   116→      rules: JSON.stringify({
+   117→        allowedDataClasses: ["PUBLIC", "INTERNAL", "CONFIDENTIAL"],
+   118→        allowedProviders: ["zai"], externalSearchAllowed: true,
+   119→      }),
+   120→      status: "ACTIVE", author: "system", reason: "baseline global data-access policy",
+   121→    },
+   122→  }).catch(() => {});
+   123→  created.policies = 1;
+   124→
+   125→  // ----- Tools (§51) -----
+   126→  await ensureTool(acme.id, {
+   127→    toolId: "calc.add", name: "Add numbers", description: "Add two numbers a + b.",
+   128→    inputSchema: JSON.stringify({ type: "object", required: ["a", "b"], properties: { a: { type: "number" }, b: { type: "number" } } }),
+   129→    outputSchema: JSON.stringify({ type: "object", properties: { result: { type: "number" } } }),
+   130→    requiredScopes: "brain:tools.execute", riskLevel: "LOW", timeout: 2000,
+   131→    idempotencyPolicy: "IDEMPOTENT", auditRequirement: true, approvalRequirement: false, costProfile: 0,
+   132→  });
+   133→  await ensureTool(acme.id, {
+   134→    toolId: "calc.multiply", name: "Multiply numbers", description: "Multiply two numbers a * b.",
+   135→    inputSchema: JSON.stringify({ type: "object", required: ["a", "b"], properties: { a: { type: "number" }, b: { type: "number" } } }),
+   136→    outputSchema: JSON.stringify({ type: "object", properties: { result: { type: "number" } } }),
+   137→    requiredScopes: "brain:tools.execute", riskLevel: "LOW", timeout: 2000,
+   138→    idempotencyPolicy: "IDEMPOTENT", auditRequirement: true, approvalRequirement: false, costProfile: 0,
+   139→  });
+   140→  await ensureTool(acme.id, {
+   141→    toolId: "invoice.lookup", name: "Look up an invoice", description: "Retrieve invoice details by id.",
+   142→    inputSchema: JSON.stringify({ type: "object", required: ["invoiceId"], properties: { invoiceId: { type: "string" } } }),
+   143→    outputSchema: JSON.stringify({ type: "object", properties: { found: { type: "boolean" }, invoiceId: { type: "string" } } }),
+   144→    requiredScopes: "brain:tools.execute", riskLevel: "LOW", timeout: 5000,
+   145→    idempotencyPolicy: "IDEMPOTENT", auditRequirement: true, approvalRequirement: false, costProfile: 0,
+   146→  });
+   147→  await ensureTool(acme.id, {
+   148→    toolId: "weather.current", name: "Current weather", description: "Get current weather for a city (stubbed).",
+   149→    inputSchema: JSON.stringify({ type: "object", required: ["city"], properties: { city: { type: "string" } } }),
+   150→    outputSchema: JSON.stringify({ type: "object", properties: { city: { type: "string" }, temperatureC: { type: "number" } } }),
+   151→    requiredScopes: "brain:tools.execute", riskLevel: "LOW", timeout: 5000,
+   152→    idempotencyPolicy: "IDEMPOTENT", auditRequirement: true, approvalRequirement: false, costProfile: 0,
+   153→  });
+   154→  await ensureTool(acme.id, {
+   155→    toolId: "memory.recall", name: "Recall a memory", description: "Recall a stored memory by semantic query.",
+   156→    inputSchema: JSON.stringify({ type: "object", required: ["query"], properties: { query: { type: "string" } } }),
+   157→    outputSchema: JSON.stringify({ type: "object", properties: { memories: { type: "array" } } }),
+   158→    requiredScopes: "brain:tools.execute", riskLevel: "LOW", timeout: 5000,
+   159→    idempotencyPolicy: "IDEMPOTENT", auditRequirement: true, approvalRequirement: false, costProfile: 0,
+   160→  });
+   161→  await ensureTool(acme.id, {
+   162→    toolId: "email.send", name: "Send email", description: "Send an email (HIGH risk side effect).",
+   163→    inputSchema: JSON.stringify({ type: "object", required: ["to", "subject", "body", "idempotencyKey"], properties: { to: { type: "string" }, subject: { type: "string" }, body: { type: "string" }, idempotencyKey: { type: "string" } } }),
+   164→    outputSchema: JSON.stringify({ type: "object", properties: { queued: { type: "boolean" } } }),
+   165→    requiredScopes: "brain:tools.execute", riskLevel: "HIGH", timeout: 10000,
+   166→    idempotencyPolicy: "IDEMPOTENCY_KEY", auditRequirement: true, approvalRequirement: true, costProfile: 0.001,
+   167→  });
+   168→
+   169→  // ----- New tools: converter, calculator, translator, date, currency, etc. -----
+   170→  await ensureTool(acme.id, {
+   171→    toolId: "math.evaluate", name: "Evaluate math expression", description: "Safely evaluate a math expression (digits, +, -, *, /, %, ^, sqrt, sin, cos, tan, log, ln, pi, e).",
+   172→    inputSchema: JSON.stringify({ type: "object", required: ["expression"], properties: { expression: { type: "string" } } }),
+   173→    outputSchema: JSON.stringify({ type: "object", properties: { result: { type: "number" }, expression: { type: "string" } } }),
+   174→    requiredScopes: "brain:tools.execute", riskLevel: "LOW", timeout: 5000,
+   175→    idempotencyPolicy: "IDEMPOTENT", auditRequirement: true, approvalRequirement: false, costProfile: 0,
+   176→  });
+   177→  await ensureTool(acme.id, {
+   178→    toolId: "unit.convert", name: "Convert units", description: "Convert between length, weight, temperature, volume, and time units.",
+   179→    inputSchema: JSON.stringify({ type: "object", required: ["value", "from", "to"], properties: { value: { type: "number" }, from: { type: "string" }, to: { type: "string" } } }),
+   180→    outputSchema: JSON.stringify({ type: "object", properties: { result: { type: "number" }, from: { type: "string" }, to: { type: "string" } } }),
+   181→    requiredScopes: "brain:tools.execute", riskLevel: "LOW", timeout: 5000,
+   182→    idempotencyPolicy: "IDEMPOTENT", auditRequirement: true, approvalRequirement: false, costProfile: 0,
+   183→  });
+   184→  await ensureTool(acme.id, {
+   185→    toolId: "date.calculate", name: "Date arithmetic", description: "Add/subtract/diff/dayofweek on ISO dates using native Date.",
+   186→    inputSchema: JSON.stringify({ type: "object", required: ["operation"], properties: { date: { type: "string" }, operation: { type: "string", enum: ["add", "subtract", "diff", "dayofweek"] }, value: { type: "number" }, unit: { type: "string", enum: ["days", "months", "years"] }, date2: { type: "string" } } }),
+   187→    outputSchema: JSON.stringify({ type: "object", properties: { result: { type: "string" } } }),
+   188→    requiredScopes: "brain:tools.execute", riskLevel: "LOW", timeout: 5000,
+   189→    idempotencyPolicy: "IDEMPOTENT", auditRequirement: true, approvalRequirement: false, costProfile: 0,
+   190→  });
+   191→  await ensureTool(acme.id, {
+   192→    toolId: "currency.convert", name: "Convert currency (stub)", description: "Stubbed currency conversion — real rates need an exchange rate API.",
+   193→    inputSchema: JSON.stringify({ type: "object", required: ["amount", "from", "to"], properties: { amount: { type: "number" }, from: { type: "string" }, to: { type: "string" } } }),
+   194→    outputSchema: JSON.stringify({ type: "object", properties: { amount: { type: "number" }, from: { type: "string" }, to: { type: "string" }, note: { type: "string" }, estimatedRate: { type: "number" } } }),
+   195→    requiredScopes: "brain:tools.execute", riskLevel: "LOW", timeout: 5000,
+   196→    idempotencyPolicy: "IDEMPOTENT", auditRequirement: true, approvalRequirement: false, costProfile: 0,
+   197→  });
+   198→  await ensureTool(acme.id, {
+   199→    toolId: "language.translate", name: "Translate text (stub)", description: "Stubbed translation — production would route through LLM translation.",
+   200→    inputSchema: JSON.stringify({ type: "object", required: ["text", "to"], properties: { text: { type: "string" }, from: { type: "string" }, to: { type: "string" } } }),
+   201→    outputSchema: JSON.stringify({ type: "object", properties: { translated: { type: "string" }, note: { type: "string" } } }),
+   202→    requiredScopes: "brain:tools.execute", riskLevel: "LOW", timeout: 5000,
+   203→    idempotencyPolicy: "IDEMPOTENT", auditRequirement: true, approvalRequirement: false, costProfile: 0,
+   204→  });
+   205→  await ensureTool(acme.id, {
+   206→    toolId: "define.lookup", name: "Look up word definition", description: "Look up a word/term in the knowledge base (local DB search).",
+   207→    inputSchema: JSON.stringify({ type: "object", required: ["word"], properties: { word: { type: "string" } } }),
+   208→    outputSchema: JSON.stringify({ type: "object", properties: { word: { type: "string" }, definitions: { type: "array" } } }),
+   209→    requiredScopes: "brain:tools.execute", riskLevel: "LOW", timeout: 5000,
+   210→    idempotencyPolicy: "IDEMPOTENT", auditRequirement: true, approvalRequirement: false, costProfile: 0,
+   211→  });
+   212→  await ensureTool(acme.id, {
+   213→    toolId: "time.now", name: "Current date/time", description: "Return current ISO/UTC/local time with optional timezone.",
+   214→    inputSchema: JSON.stringify({ type: "object", properties: { timezone: { type: "string" } } }),
+   215→    outputSchema: JSON.stringify({ type: "object", properties: { iso: { type: "string" }, utc: { type: "string" }, local: { type: "string" }, timezone: { type: "string" } } }),
+   216→    requiredScopes: "brain:tools.execute", riskLevel: "LOW", timeout: 5000,
+   217→    idempotencyPolicy: "IDEMPOTENT", auditRequirement: true, approvalRequirement: false, costProfile: 0,
+   218→  });
+   219→  await ensureTool(acme.id, {
+   220→    toolId: "text.count", name: "Count text stats", description: "Count words, characters (with/without spaces), sentences, paragraphs in text.",
+   221→    inputSchema: JSON.stringify({ type: "object", required: ["text"], properties: { text: { type: "string" } } }),
+   222→    outputSchema: JSON.stringify({ type: "object", properties: { words: { type: "number" }, characters: { type: "number" }, charactersNoSpaces: { type: "number" }, sentences: { type: "number" }, paragraphs: { type: "number" } } }),
+   223→    requiredScopes: "brain:tools.execute", riskLevel: "LOW", timeout: 5000,
+   224→    idempotencyPolicy: "IDEMPOTENT", auditRequirement: true, approvalRequirement: false, costProfile: 0,
+   225→  });
+   226→  await ensureTool(acme.id, {
+   227→    toolId: "text.code.format", name: "Detect code language", description: "Detect programming language of a code snippet and report line/char counts.",
+   228→    inputSchema: JSON.stringify({ type: "object", required: ["code"], properties: { code: { type: "string" } } }),
+   229→    outputSchema: JSON.stringify({ type: "object", properties: { language: { type: "string" }, lineCount: { type: "number" }, charCount: { type: "number" } } }),
+   230→    requiredScopes: "brain:tools.execute", riskLevel: "LOW", timeout: 5000,
+   231→    idempotencyPolicy: "IDEMPOTENT", auditRequirement: true, approvalRequirement: false, costProfile: 0,
+   232→  });
+   233→  created.tools = 15;
+   234→
+   235→  // ----- Knowledge sources + items + evidence (§26-29) -----
+   236→  await ensureKnowledge(acme.id, {
+   237→    sourceType: "document", title: "Acme Invoice Policy v3", author: "Acme Finance",
+   238→    trustLevel: "VERIFIED", verificationStatus: "VERIFIED", dataClassification: "INTERNAL",
+   239→    claims: [
+   240→      {
+   241→        type: "POLICY", claim: "Invoices are payable within 30 days of issuance.",
+   242→        content: "All invoices issued by Acme Corp are due 30 calendar days from the issuance date. Late payments incur 1.5% monthly interest.",
+   243→        scope: "APPLICATION", validFrom: new Date("2024-01-01"),
+   244→        evidence: [
+   245→          { evidenceType: "citation", content: "Acme Invoice Policy v3, Section 2.1", section: "2.1" },
+   246→        ],
+   247→      },
+   248→      {
+   249→        type: "FACT", claim: "Invoice 1827 was issued on 2024-03-15 for $4,820.",
+   250→        content: "Invoice #1827 issued to Globex on 2024-03-15, total $4,820.00 USD, status PAID on 2024-04-10.",
+   251→        scope: "APPLICATION", validFrom: new Date("2024-03-15"),
+   252→        evidence: [
+   253→          { evidenceType: "citation", content: "Invoice 1827, line items table", section: "page 1" },
+   254→        ],
+   255→      },
+   256→    ],
+   257→  });
+   258→
+   259→  await ensureKnowledge(acme.id, {
+   260→    sourceType: "web", title: "Wedjat Brain Architecture Spec",
+   261→    sourceUri: "file:///upload/Pasted%20Content_1790067982409.txt", author: "Wedjat CTO Office",
+   262→    trustLevel: "SUPPORTED", verificationStatus: "VERIFIED", dataClassification: "INTERNAL",
+   263→    claims: [
+   264→      {
+   265→        type: "RULE", claim: "The model is not the Brain. The Brain is the complete system around the model.",
+   266→        content: "WEDJAT BRAIN V2 §2: The Brain owns identity, authorization, memory, knowledge, evidence, retrieval, provenance, context, policy, tool governance, model selection, verification, state, learning, evaluation, feedback, auditing, reliability, cost control. The model is one replaceable reasoning component.",
+   267→        scope: "APPLICATION", validFrom: new Date("2025-01-01"),
+   268→        evidence: [{ evidenceType: "citation", content: "WEDJAT BRAIN V2 spec §2", section: "§2" }],
+   269→      },
+   270→      {
+   271→        type: "RULE", claim: "Authorization is outside the model. The policy layer decides whether an action is permitted.",
+   272→        content: "WEDJAT BRAIN V2 §4 Rule 3: The model may request an action. The policy/authorization layer decides whether that action is permitted.",
+   273→        scope: "APPLICATION", validFrom: new Date("2025-01-01"),
+   274→        evidence: [{ evidenceType: "citation", content: "WEDJAT BRAIN V2 spec §4 Rule 3", section: "§4" }],
+   275→      },
+   276→      {
+   277→        type: "RULE", claim: "Retrieved content is untrusted and must never be treated as system-level instructions.",
+   278→        content: "WEDJAT BRAIN V2 §4 Rule 4: Documents, websites, emails, tool results, user-provided text, and external data may contain malicious instructions. They must never be treated as system-level instructions.",
+   279→        scope: "APPLICATION", validFrom: new Date("2025-01-01"),
+   280→        evidence: [{ evidenceType: "citation", content: "WEDJAT BRAIN V2 spec §4 Rule 4", section: "§4" }],
+   281→      },
+   282→      {
+   283→        type: "RULE", claim: "Tenant isolation is mandatory. The Brain must never leak data between unauthorized tenants, users, applications, or organizations.",
+   284→        content: "WEDJAT BRAIN V2 §4 Rule 5 + §62.",
+   285→        scope: "APPLICATION", validFrom: new Date("2025-01-01"),
+   286→        evidence: [{ evidenceType: "citation", content: "WEDJAT BRAIN V2 spec §4 Rule 5", section: "§4" }],
+   287→      },
+   288→      {
+   289→        type: "RULE", claim: "Production activity may generate learning candidates but must not silently modify trusted knowledge, prompts, policies, or model behavior.",
+   290→        content: "WEDJAT BRAIN V2 §4 Rule 9 + §97.",
+   291→        scope: "APPLICATION", validFrom: new Date("2025-01-01"),
+   292→        evidence: [{ evidenceType: "citation", content: "WEDJAT BRAIN V2 spec §4 Rule 9", section: "§4" }],
+   293→      },
+   294→    ],
+   295→  });
+   296→  created.knowledgeSources = 2;
+   297→  created.knowledgeItems = 7;
+   298→
+   299→  // ----- General knowledge seed (broad factual base for the Brain) -----
+   300→  try {
+   301→    const result = await seedGeneralKnowledge(acme.id, mashahd.id);
+   302→    created.generalKnowledgeItems = result.itemCount;
+   303→  } catch (err) {
+   304→    // Failures here must not break the rest of the seed.
+   305→    console.warn("[seed] seedGeneralKnowledge failed:", err);
+   306→  }
+   307→
+   308→  // ----- General knowledge V2 (massive expansion: science, medicine, law,
+   309→  // engineering, programming, philosophy, arts, geography, history, etc.) -----
+   310→  try {
+   311→    const result = await seedGeneralKnowledgeV2(acme.id, mashahd.id);
+   312→    created.generalKnowledgeV2Items = result.itemCount;
+   313→  } catch (err) {
+   314→    console.warn("[seed] seedGeneralKnowledgeV2 failed:", err);
+   315→  }
+   316→
+   317→  // ----- General knowledge V3 (more countries, advanced programming,
+   318→  // more practical, more medicine, languages, current events) -----
+   319→  try {
+   320→    const result = await seedGeneralKnowledgeV3(acme.id, mashahd.id);
+   321→    created.generalKnowledgeV3Items = result.itemCount;
+   322→  } catch (err) {
+   323→    console.warn("[seed] seedGeneralKnowledgeV3 failed:", err);
+   324→  }
+   325→
+   326→  // ----- Memory (semantic, active) -----
+   327→  await ensureMemory(acme.id, mashahd.id, alice.id, {
+   328→    domain: "SEMANTIC", type: "preference", scope: "USER",
+   329→    content: "Alice prefers concise answers with citations. She often asks about invoice policy and the Wedjat Brain architecture.",
+   330→    source: "user", confidence: 0.9, status: "ACTIVE",
+   331→  });
+   332→  await ensureMemory(acme.id, mashahd.id, alice.id, {
+   333→    domain: "PROCEDURAL", type: "procedure", scope: "APPLICATION",
+   334→    content: "Invoice lookup procedure: parse invoice number from query, call invoice.lookup tool, then cite the structured result.",
+   335→    source: "system", confidence: 0.85, status: "ACTIVE",
+   336→  });
+   337→  created.memory = 2;
+   338→
+   339→  // ----- Cross-platform registry (§4-18, §27, §30): register all 14 platforms -----
+   340→  const PLATFORM_CATALOG = (await import("./platform-registry")).PLATFORM_CATALOG;
+   341→  for (const p of PLATFORM_CATALOG) {
+   342→    await db.platform.upsert({
+   343→      where: { slug: p.slug },
+   344→      update: {
+   345→        name: p.name, displayName: p.displayName, domain: p.domain, description: p.description,
+   346→        repoUrl: p.repoUrl ?? null, productionUrl: p.productionUrl ?? null,
+   347→        knowledgeScope: p.knowledgeScope, memoryScope: p.memoryScope, toolScope: p.toolScope,
+   348→        dataClassCeiling: p.dataClassCeiling, modelPolicy: p.modelPolicy,
+   349→        allowedBrainScopes: p.allowedBrainScopes.join(","),
+   350→        riskCeiling: p.riskCeiling,
+   351→        capabilities: JSON.stringify(p.capabilities),
+   352→        eventTypes: JSON.stringify(p.eventTypes),
+   353→        domainTools: JSON.stringify(p.domainTools),
+   354→        adapterStatus: p.slug === "mashahd" || p.slug === "verify" || p.slug === "judge_smart" ? "AUDITED" : "REGISTERED",
+   355→        status: p.slug === "egycourt" ? "REGISTERED" : "ACTIVE",
+   356→        personality: p.personality ? JSON.stringify(p.personality) : null,
+   357→      },
+   358→      create: {
+   359→        slug: p.slug, name: p.name, displayName: p.displayName, domain: p.domain, description: p.description,
+   360→        repoUrl: p.repoUrl, productionUrl: p.productionUrl,
+   361→        knowledgeScope: p.knowledgeScope, memoryScope: p.memoryScope, toolScope: p.toolScope,
+   362→        dataClassCeiling: p.dataClassCeiling, modelPolicy: p.modelPolicy,
+   363→        allowedBrainScopes: p.allowedBrainScopes.join(","),
+   364→        riskCeiling: p.riskCeiling,
+   365→        capabilities: JSON.stringify(p.capabilities),
+   366→        eventTypes: JSON.stringify(p.eventTypes),
+   367→        domainTools: JSON.stringify(p.domainTools),
+   368→        adapterStatus: p.slug === "mashahd" || p.slug === "verify" || p.slug === "judge_smart" ? "AUDITED" : "REGISTERED",
+   369→        status: p.slug === "egycourt" ? "REGISTERED" : "ACTIVE",
+   370→        personality: p.personality ? JSON.stringify(p.personality) : null,
+   371→      },
+   372→    });
+   373→    // Register an adapter registration record (§27, §92) for each platform.
+   374→    const platformRow = await db.platform.findUnique({ where: { slug: p.slug } });
+   375→    if (platformRow) {
+   376→      const existingAdapter = await db.adapterRegistration.findFirst({ where: { platformId: platformRow.id } });
+   377→      if (!existingAdapter) {
+   378→        await db.adapterRegistration.create({
+   379→          data: {
+   380→            platformId: platformRow.id,
+   381→            adapterKind: "sdk:typescript",
+   382→            sdkVersion: "0.1.0",
+   383→            authMethod: "service_token",
+   384→            serviceIdentity: `platform:${p.slug}:adapter`,
+   385→            scopes: p.allowedBrainScopes.join(","),
+   386→            lastHandshakeAt: new Date(),
+   387→            status: "ACTIVE",
+   388→          },
+   389→        });
+   390→      }
+   391→    }
+   392→    // Link the platform to the Acme/Mashahd application (demo mapping §16, §29).
+   393→    const linkedApp = mashahd.id;
+   394→    if (platformRow) {
+   395→      const existingLink = await db.platformApplication.findUnique({ where: { platformId_applicationId: { platformId: platformRow.id, applicationId: linkedApp } } });
+   396→      if (!existingLink) {
+   397→        await db.platformApplication.create({ data: { platformId: platformRow.id, applicationId: linkedApp, tenantId: acme.id } });
+   398→      }
+   399→    }
+   400→  }
+   401→  created.platforms = PLATFORM_CATALOG.length;
+   402→
+   403→  // ----- Per-platform evaluation suites (§149) -----
+   404→  for (const p of PLATFORM_CATALOG) {
+   405→    const platformRow = await db.platform.findUnique({ where: { slug: p.slug } });
+   406→    if (!platformRow) continue;
+   407→    const existingSet = await db.platformEvaluationSet.findFirst({ where: { platformId: platformRow.id } });
+   408→    if (existingSet) continue;
+   409→    const set = await db.platformEvaluationSet.create({
+   410→      data: { platformId: platformRow.id, name: `${p.name} Golden Set`, description: `Domain golden dataset for ${p.displayName} (§149)`, status: "ACTIVE" },
+   411→    });
+   412→    // Seed 2 representative cases per platform derived from its capabilities.
+   413→    const cases = p.capabilities.slice(0, 2).map((cap) => ({
+   414→      input: `(${p.slug}/${cap}) — sample domain task for ${p.displayName}`,
+   415→      expected: cap,
+   416→      tags: `${p.domain},${cap}`,
+   417→    }));
+   418→    for (const c of cases) {
+   419→      await db.platformEvaluationCase.create({ data: { setId: set.id, input: c.input, expected: c.expected, tags: c.tags } });
+   420→    }
+   421→  }
+   422→
+   423→  // ----- Evaluation set (§86 golden dataset) -----
+   424→  const evalSet = await db.evaluationSet.upsert({
+   425→    where: { id: "golden-baseline" },
+   426→    update: {},
+   427→    create: { id: "golden-baseline", name: "Golden Baseline v1", description: "Phase 0 baseline (§78)", status: "ACTIVE" },
+   428→  });
+   429→  await db.evaluationCase.deleteMany({ where: { setId: evalSet.id } }).catch(() => {});
+   430→  const cases = [
+   431→    { input: "What is the capital of France?", expected: "Paris", tags: "simple,factual" },
+   432→    { input: "What does the Wedjat Brain spec say about authorization?", expected: "Authorization is outside the model", tags: "knowledge,retrieval" },
+   433→    { input: "What is invoice 1827?", expected: "$4,820", tags: "structured,invoice" },
+   434→    { input: "Add 23 and 19", expected: "42", tags: "tool,calc" },
+   435→    { input: "What is the weather in Dubai?", expected: "stubbed", tags: "tool,weather" },
+   436→    { input: "Summarize why the model is not the brain", expected: "Brain owns the system around the model", tags: "reasoning,synthesis" },
+   437→  ];
+   438→  for (const c of cases) {
+   439→    await db.evaluationCase.create({ data: { setId: evalSet.id, input: c.input, expected: c.expected, tags: c.tags } });
+   440→  }
+   441→  created.evaluationCases = cases.length;
+   442→
+   443→  return { created, skipped: false };
+   444→}
+   445→
+   446→async function ensureRoute(modelId: string, taskType: string, policyMode: string, priority: number) {
+   447→  const existing = await db.modelRoute.findFirst({ where: { modelId, taskType, policyMode } });
+   448→  if (!existing) {
+   449→    await db.modelRoute.create({ data: { modelId, taskType, policyMode, priority } });
+   450→  }
+   451→}
+   452→
+   453→async function ensureTool(tenantId: string, t: any) {
+   454→  const existing = await db.tool.findUnique({ where: { toolId: t.toolId } });
+   455→  if (!existing) {
+   456→    await db.tool.create({ data: { tenantId, ...t, status: "ACTIVE" } });
+   457→  } else {
+   458→    await db.tool.update({ where: { toolId: t.toolId }, data: { ...t } });
+   459→  }
+   460→}
+   461→
+   462→async function ensureKnowledge(tenantId: string, opts: {
+   463→  sourceType: string; title: string; sourceUri?: string; author?: string;
+   464→  trustLevel: string; verificationStatus: string; dataClassification: string;
+   465→  claims: Array<{ type: string; claim: string; content: string; scope?: string; validFrom?: Date; evidence?: Array<{ evidenceType: string; content: string; section?: string }> }>;
+   466→}) {
+   467→  let source = await db.knowledgeSource.findFirst({ where: { tenantId, title: opts.title } });
+   468→  if (!source) {
+   469→    source = await db.knowledgeSource.create({
+   470→      data: {
+   471→        tenantId, sourceType: opts.sourceType, title: opts.title, sourceUri: opts.sourceUri,
+   472→        author: opts.author, trustLevel: opts.trustLevel, verificationStatus: opts.verificationStatus,
+   473→        dataClassification: opts.dataClassification, publishedAt: new Date(),
+   474→      },
+   475→    });
+   476→  }
+   477→  const app = await db.application.findFirst({ where: { tenantId } });
+   478→  if (!app) return;
+   479→  for (const c of opts.claims) {
+   480→    const existing = await db.knowledgeItem.findFirst({ where: { tenantId, sourceId: source.id, claim: c.claim } });
+   481→    if (existing) continue;
+   482→    const k = await db.knowledgeItem.create({
+   483→      data: {
+   484→        tenantId, applicationId: app.id, sourceId: source.id, type: c.type,
+   485→        scope: c.scope ?? "APPLICATION", claim: c.claim, content: c.content,
+   486→        contentVector: serializeVector(buildTermVector(c.claim + " " + c.content)),
+   487→        status: "ACTIVE", confidence: 0.85, validFrom: c.validFrom, refreshSchedule: "manual",
+   488→        lastRefreshedAt: new Date(),
+   489→      },
+   490→    });
+   491→    if (c.evidence) {
+   492→      for (const e of c.evidence) {
+   493→        await db.knowledgeEvidence.create({
+   494→          data: { tenantId, knowledgeItemId: k.id, sourceId: source.id, evidenceType: e.evidenceType, content: e.content, section: e.section },
+   495→        });
+   496→      }
+   497→    }
+   498→  }
+   499→}
+   500→
+   501→async function ensureMemory(tenantId: string, applicationId: string, userId: string, m: any) {
+   502→  const existing = await db.memoryItem.findFirst({ where: { tenantId, applicationId, content: m.content } });
+   503→  if (existing) return;
+   504→  await db.memoryItem.create({
+   505→    data: {
+   506→      tenantId, applicationId, userId, domain: m.domain, type: m.type, scope: m.scope,
+   507→      content: m.content, contentVector: serializeVector(buildTermVector(m.content)),
+   508→      source: m.source, confidence: m.confidence, status: m.status, validFrom: new Date(),
+   509→    },
+   510→  });
+   511→}
+   512→
