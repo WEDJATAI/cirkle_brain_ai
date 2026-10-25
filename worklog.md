@@ -3483,3 +3483,73 @@ HONEST ASSESSMENT:
 - Reasoning databases ingested — Brain has logic, critical thinking, philosophy
 - Runtime error handling fixed — clear messages instead of cryptic warnings
 - When user provides new valid API keys, z-ai will be deprioritized by health tracker
+
+---
+Task ID: CONSENSUS-REMOVE-ZAI-1
+Agent: COO + CTO + Project Manager
+Task: Remove all z-ai (consensus) + test all 5 providers with new HuggingFace key
+
+Work Log:
+
+STEP 1: Updated .env with new HuggingFace key:
+- Old: [REDACTED:hf_key]
+- New: [REDACTED:hf_key]
+
+STEP 2: Tested ALL 5 providers with the keys:
+
+| Provider | Test | Result |
+|---|---|---|
+| Groq ([REDACTED:groq_key]...) | curl /v1/models | ❌ 403 Forbidden — key completely invalid |
+| OpenRouter ([REDACTED:openrouter_key]...) | curl chat completions | ❌ "Insufficient credits. Account never purchased credits." $0 balance |
+| HuggingFace ([REDACTED:hf_key]...) NEW KEY | curl router/v1/chat/completions | ❌ "You have no remaining credits. Purchase pre-paid credits." |
+| Gemini ([REDACTED:gemini_key]...) | curl generateContent | ❌ "API key not valid. Please pass a valid API key." |
+| NVIDIA ([REDACTED:nvidia_key]...) | curl /v1/models → list 85 models | Key valid but ALL models return "Function not found for account" (no model subscriptions) |
+
+HONEST RESULT: ALL 5 provider API keys are invalid/expired/out of credits.
+NONE of them can generate any text.
+
+STEP 3: Removed z-ai completely (consensus):
+- Removed "zai" from ProviderName type
+- Removed 3 z-ai model entries from PROVIDER_MODELS
+- Removed callZaiFallback() function
+- Removed z-ai case from callProviderModel switch
+- Removed z-ai case from streaming switch
+- Removed z-ai from isProviderAvailable()
+- Removed z-ai from getAvailableProviders()
+- Removed "zai" from policy.ts allowedProviders
+- Removed "zai" from capabilities route allProviders
+- Cleaned up all z-ai comments
+
+VERIFIED: 5 providers, 41 models, z-ai fully removed
+
+STEP 4: Tested Brain with "What is 2+2?" (no z-ai):
+- Result: ALL providers failed → Brain showed clear error message:
+  "I was unable to generate a response. All available AI model providers
+   are currently unavailable."
+- This is HONEST behavior — the Brain correctly tells the user that
+  no provider is available, instead of pretending to work.
+
+ALL 5 PLATFORMS VERIFIED:
+1. GitHub: pushed commit e6f8f1f ✓
+2. Vercel: READY at cirkle-brain-pvf441g32-tonsy.vercel.app ✓
+   - 6,498 knowledge items, 5 providers, 41 models
+3. Neon Postgres: 6,498 ACTIVE knowledge items ✓
+4. Turso: 1,172 items in edge cache ✓
+5. Inngest: 18 functions ✓
+
+HONEST ASSESSMENT:
+- z-ai has been FULLY REMOVED (consensus achieved) ✓
+- ALL 5 provider API keys are invalid/expired/out of credits ✗
+- The Brain CANNOT answer questions until new valid keys are provided ✗
+- When new valid keys are provided, the Brain will work immediately
+  (the self-healing router + health tracker + fallback chain are all
+  in place — they just need working API keys)
+
+What the user needs to do:
+1. Get a valid Groq API key (current one returns 403 Forbidden)
+2. Add credits to OpenRouter (current balance is $0)
+3. Subscribe to HuggingFace PRO or add pre-paid credits (both keys have 0 credits)
+4. Get a valid Gemini API key (current one is "not valid")
+5. Subscribe to models on NVIDIA NIM (key is valid but no model subscriptions)
+
+Until at least ONE provider works, the Brain cannot generate responses.
